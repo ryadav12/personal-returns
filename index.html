@@ -1,0 +1,1773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Intelligence Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+  .metric-card { transition: transform 0.2s, box-shadow 0.2s; }
+  .metric-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
+  .fade-in { animation: fadeIn 0.4s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .chart-container { position: relative; height: 350px; }
+  .glow-green { text-shadow: 0 0 10px rgba(34,197,94,0.4); }
+  .glow-red { text-shadow: 0 0 10px rgba(239,68,68,0.4); }
+  .hm-cell { padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; border-radius: 4px; min-width: 58px; transition: transform 0.1s; }
+  .hm-cell:hover { transform: scale(1.08); z-index: 2; position: relative; box-shadow: 0 0 12px rgba(0,0,0,0.5); }
+  .hm-header { padding: 8px 6px; text-align: center; font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+  .hm-year { padding: 8px 10px; text-align: left; font-size: 13px; font-weight: 700; color: #e2e8f0; white-space: nowrap; }
+  .hm-annual { font-weight: 700; font-size: 13px; border-radius: 6px; padding: 8px 12px; text-align: center; min-width: 72px; }
+</style>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        dark: { 50:'#f8fafc',100:'#f1f5f9',200:'#e2e8f0',300:'#cbd5e1',400:'#94a3b8',500:'#64748b',600:'#475569',700:'#334155',800:'#1e293b',900:'#0f172a',950:'#020617' }
+      }
+    }
+  }
+}
+</script>
+</head>
+<body class="bg-dark-950 text-dark-100 min-h-screen">
+
+<!-- Header -->
+<header class="bg-dark-900/80 backdrop-blur border-b border-dark-700/50 sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">PI</div>
+      <div>
+        <h1 class="text-lg font-semibold text-white">Portfolio Intelligence</h1>
+        <p class="text-xs text-dark-400">PIRS Dashboard &bull; Data as of <span id="asOfDate">--</span></p>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="text-right">
+        <span id="totalValue" class="text-xl font-bold text-white">--</span>
+        <span id="totalChange" class="text-sm px-2 py-0.5 rounded font-medium">--</span>
+      </div>
+      <div class="border-l border-dark-700 pl-4 flex items-center gap-2">
+        <button onclick="document.getElementById('gspcPanel').classList.toggle('hidden')" class="px-3 py-1.5 bg-dark-700 hover:bg-dark-600 text-xs text-dark-300 hover:text-white rounded-lg transition font-medium" title="Update S&P 500 data">Update GSPC</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- GSPC Update Panel (slides down) -->
+<div id="gspcPanel" class="hidden bg-dark-900 border-b border-dark-700/50">
+  <div class="max-w-7xl mx-auto px-4 py-4">
+    <div class="flex flex-wrap items-end gap-6">
+      <!-- Option A: Upload CSV -->
+      <div>
+        <div class="text-xs text-dark-400 mb-1.5 font-medium">Upload Updated CSV</div>
+        <label class="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-xs text-white rounded-lg cursor-pointer transition inline-block font-medium">
+          Choose CSV
+          <input type="file" accept=".csv" class="hidden" onchange="handleGSPCUpload(event)">
+        </label>
+      </div>
+      <div class="text-xs text-dark-500 self-center">— or —</div>
+      <!-- Option B: Manual entry -->
+      <div class="flex items-end gap-3">
+        <div>
+          <div class="text-xs text-dark-400 mb-1.5 font-medium">Add Last Month Close</div>
+          <input type="month" id="gspcMonth" class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-white">
+        </div>
+        <div>
+          <div class="text-xs text-dark-400 mb-1.5 font-medium">S&P 500 Close</div>
+          <input type="number" id="gspcPrice" step="0.01" placeholder="e.g. 5800.50" class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-1.5 text-xs text-white w-36">
+        </div>
+        <button onclick="addGSPCManual()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs text-white rounded-lg font-medium transition">Add</button>
+      </div>
+      <div class="ml-auto self-center">
+        <span class="text-xs text-dark-500">GSPC data points: <span id="gspcCount" class="text-dark-300">--</span> | Latest: <span id="gspcLatest" class="text-dark-300">--</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Navigation Tabs -->
+<nav class="bg-dark-900/60 border-b border-dark-800">
+  <div class="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
+    <button onclick="switchTab('performance')" id="tab-performance" class="tab-btn px-4 py-3 text-sm font-medium text-dark-400 hover:text-white whitespace-nowrap transition tab-active">Performance</button>
+    <button onclick="switchTab('growth')" id="tab-growth" class="tab-btn px-4 py-3 text-sm font-medium text-dark-400 hover:text-white whitespace-nowrap transition">Growth Charts</button>
+    <button onclick="switchTab('drawdown')" id="tab-drawdown" class="tab-btn px-4 py-3 text-sm font-medium text-dark-400 hover:text-white whitespace-nowrap transition">Drawdown</button>
+    <button onclick="switchTab('cashflow')" id="tab-cashflow" class="tab-btn px-4 py-3 text-sm font-medium text-dark-400 hover:text-white whitespace-nowrap transition">Cashflow</button>
+    <button onclick="switchTab('accounts')" id="tab-accounts" class="tab-btn px-4 py-3 text-sm font-medium text-dark-400 hover:text-white whitespace-nowrap transition">Accounts</button>
+    <button onclick="switchTab('heatmap')" id="tab-heatmap" class="tab-btn px-4 py-3 text-sm font-medium text-dark-400 hover:text-white whitespace-nowrap transition">Monthly Returns</button>
+  </div>
+</nav>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+
+<!-- ========== PERFORMANCE TAB ========== -->
+<div id="panel-performance" class="tab-panel fade-in">
+  <!-- Performance Cards -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-1m"></div>
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-3m"></div>
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-6m"></div>
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-ytd"></div>
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-1y"></div>
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-3y"></div>
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-5y"></div>
+    <div class="metric-card bg-dark-800/80 rounded-xl p-3 border border-dark-700/50" id="card-inception"></div>
+  </div>
+
+  <!-- Secondary Metrics -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <div class="text-xs text-dark-400 uppercase tracking-wider mb-1">CAGR (Since Mar 2017)</div>
+      <div id="metric-cagr" class="text-2xl font-bold text-white">--</div>
+    </div>
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <div class="text-xs text-dark-400 uppercase tracking-wider mb-1">Sharpe Ratio (Ann.)</div>
+      <div id="metric-sharpe" class="text-2xl font-bold text-white">--</div>
+    </div>
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <div class="text-xs text-dark-400 uppercase tracking-wider mb-1">Max Drawdown</div>
+      <div id="metric-maxdd" class="text-2xl font-bold text-red-400">--</div>
+    </div>
+  </div>
+
+  <!-- YoY Portfolio Value Comparison -->
+  <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50 mb-6">
+    <div class="text-xs text-dark-400 uppercase tracking-wider mb-3">Year-over-Year Portfolio Value</div>
+    <div id="yoy-comparison" class="flex items-center gap-6 flex-wrap"></div>
+  </div>
+
+  <!-- Benchmark Comparison Table -->
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-dark-700/50">
+      <h3 class="text-sm font-semibold text-white">Portfolio vs S&P 500 Benchmark</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-dark-400 text-xs uppercase">
+          <th class="px-5 py-3 text-left">Metric</th><th class="px-5 py-3 text-right">Portfolio</th><th class="px-5 py-3 text-right">S&P 500</th><th class="px-5 py-3 text-right">Difference</th>
+        </tr></thead>
+        <tbody id="benchmarkTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Per-Account Lifetime Returns Table -->
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-dark-700/50">
+      <h3 class="text-sm font-semibold text-white">Per-Account Lifetime Returns</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-dark-400 text-xs uppercase">
+          <th class="px-5 py-3 text-left">Account</th><th class="px-5 py-3 text-right">MWRR</th><th class="px-5 py-3 text-right">TWRR</th><th class="px-5 py-3 text-right">Real Return</th><th class="px-5 py-3 text-left">Since</th>
+        </tr></thead>
+        <tbody id="acctLifetimeTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Per-Account Trailing Returns Table -->
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-dark-700/50">
+      <h3 class="text-sm font-semibold text-white">Per-Account Trailing Returns</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-dark-400 text-xs uppercase">
+          <th class="px-5 py-3 text-left">Account</th><th class="px-5 py-3 text-right">1M</th><th class="px-5 py-3 text-right">3M</th><th class="px-5 py-3 text-right">6M</th><th class="px-5 py-3 text-right">YTD</th><th class="px-5 py-3 text-right">1Y</th><th class="px-5 py-3 text-right">3Y</th><th class="px-5 py-3 text-right">5Y</th><th class="px-5 py-3 text-right">10Y</th>
+        </tr></thead>
+        <tbody id="acctTrailingTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Annual Returns Heatmap -->
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-dark-700/50 flex items-center justify-between">
+      <h3 class="text-sm font-semibold text-white">Annual Returns by Account</h3>
+      <div class="flex items-center gap-4 text-xs text-dark-400">
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#991b1b"></span>≤-15%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#dc2626"></span>-10%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#f97316"></span>-5%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#fbbf24"></span>0%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#84cc16"></span>+5%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#22c55e"></span>+10%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#15803d"></span>≥+15%</span>
+      </div>
+    </div>
+    <div class="overflow-x-auto p-4">
+      <table id="annualReturnsTable" class="w-full text-sm"></table>
+    </div>
+  </div>
+
+  <!-- Portfolio Composition Donut Chart -->
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden">
+    <div class="px-5 py-4 border-b border-dark-700/50">
+      <h3 class="text-sm font-semibold text-white">Portfolio Composition by Account</h3>
+    </div>
+    <div style="max-width: 700px; margin: 20px auto;">
+      <canvas id="chartPortfolioComposition" style="max-height: 500px;"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ========== GROWTH CHARTS TAB ========== -->
+<div id="panel-growth" class="tab-panel fade-in hidden">
+  <div class="grid grid-cols-1 gap-6">
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-semibold text-white">Growth of $10,000 &mdash; Portfolio vs S&P 500 (Since Mar 2017)</h3>
+        <div id="growth10kPeakBadge" class="text-xs px-3 py-1 rounded-full bg-yellow-500/10 text-yellow-400 font-medium hidden"></div>
+      </div>
+      <div class="chart-container"><canvas id="chartGrowth10k"></canvas></div>
+    </div>
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <h3 class="text-sm font-semibold text-white mb-4">Portfolio Total Value Over Time</h3>
+      <div class="chart-container"><canvas id="chartPortfolioValue"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== DRAWDOWN TAB ========== -->
+<div id="panel-drawdown" class="tab-panel fade-in hidden">
+  <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-sm font-semibold text-white">Drawdown Analysis (Peak-to-Trough Declines)</h3>
+      <div id="drawdownPeakBadge" class="text-xs px-3 py-1 rounded-full bg-red-500/10 text-red-400 font-medium hidden"></div>
+    </div>
+    <div class="chart-container" style="height:300px"><canvas id="chartDrawdown"></canvas></div>
+  </div>
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden">
+    <div class="px-5 py-4 border-b border-dark-700/50">
+      <h3 class="text-sm font-semibold text-white">Top 5 Drawdowns</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-dark-400 text-xs uppercase">
+          <th class="px-5 py-3 text-left">#</th><th class="px-5 py-3 text-left">Start</th><th class="px-5 py-3 text-left">Trough</th><th class="px-5 py-3 text-right">Depth</th><th class="px-5 py-3 text-right">Duration</th>
+        </tr></thead>
+        <tbody id="drawdownTable"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========== CASHFLOW TAB ========== -->
+<div id="panel-cashflow" class="tab-panel fade-in hidden">
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <div class="text-xs text-dark-400 uppercase tracking-wider mb-1">Total Contributions</div>
+      <div id="totalContrib" class="text-2xl font-bold text-green-400">--</div>
+    </div>
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <div class="text-xs text-dark-400 uppercase tracking-wider mb-1">Total Withdrawals</div>
+      <div id="totalWithdraw" class="text-2xl font-bold text-red-400">--</div>
+    </div>
+    <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50">
+      <div class="text-xs text-dark-400 uppercase tracking-wider mb-1">Net Invested</div>
+      <div id="totalNet" class="text-2xl font-bold text-blue-400">--</div>
+    </div>
+  </div>
+  <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50 mb-6">
+    <h3 class="text-sm font-semibold text-white mb-4">Monthly Net Contributions</h3>
+    <div class="chart-container" style="height:350px"><canvas id="chartCashflow"></canvas></div>
+  </div>
+  <div class="bg-dark-800/80 rounded-xl p-5 border border-dark-700/50 mb-6">
+    <h3 class="text-sm font-semibold text-white mb-4">Cumulative Net Cashflow</h3>
+    <div class="chart-container" style="height:300px"><canvas id="chartNetCashflow"></canvas></div>
+  </div>
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden">
+    <div class="px-5 py-4 border-b border-dark-700/50">
+      <h3 class="text-sm font-semibold text-white">Annual Cashflow Summary</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-dark-400 text-xs uppercase">
+          <th class="px-5 py-3 text-left">Year</th><th class="px-5 py-3 text-right">Contributions</th><th class="px-5 py-3 text-right">Withdrawals</th><th class="px-5 py-3 text-right">Net</th>
+        </tr></thead>
+        <tbody id="annualCashflowTable"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MONTHLY RETURNS HEATMAP TAB ========== -->
+<div id="panel-heatmap" class="tab-panel fade-in hidden">
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden">
+    <div class="px-5 py-4 border-b border-dark-700/50 flex items-center justify-between">
+      <h3 class="text-sm font-semibold text-white">Monthly Returns Heatmap</h3>
+      <div class="flex items-center gap-4 text-xs text-dark-400">
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#991b1b"></span>≤-15%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#dc2626"></span>-10%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#f97316"></span>-5%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#fbbf24"></span>0%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#84cc16"></span>+5%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#22c55e"></span>+10%</span>
+        <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded" style="background:#15803d"></span>≥+15%</span>
+      </div>
+    </div>
+    <div class="overflow-x-auto p-4">
+      <table id="heatmapTable" class="w-full text-sm"></table>
+    </div>
+  </div>
+</div>
+
+<!-- ========== ACCOUNTS TAB ========== -->
+<div id="panel-accounts" class="tab-panel fade-in hidden">
+  <div class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-dark-700/50 flex items-center justify-between">
+      <h3 class="text-sm font-semibold text-white">Active Accounts</h3>
+      <div class="flex gap-2">
+        <button onclick="openAddDataModal()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded-lg font-medium transition">+ Add Data</button>
+        <label class="px-3 py-1.5 bg-dark-600 hover:bg-dark-500 text-white text-xs rounded-lg font-medium cursor-pointer transition">
+          Re-Upload XLSM
+          <input type="file" accept=".xlsm,.xlsx" class="hidden" onchange="handleFileUpload(event)">
+        </label>
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-dark-400 text-xs uppercase">
+          <th class="px-5 py-3 text-left">Account</th>
+          <th class="px-5 py-3 text-right">Balance</th>
+          <th class="px-5 py-3 text-right">% of Portfolio</th>
+          <th class="px-5 py-3 text-left">Active Since</th>
+          <th class="px-5 py-3 text-center">Status</th>
+          <th class="px-5 py-3 text-center">Actions</th>
+        </tr></thead>
+        <tbody id="accountsTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Archived Accounts -->
+  <div id="archivedSection" class="bg-dark-800/80 rounded-xl border border-dark-700/50 overflow-hidden hidden">
+    <div class="px-5 py-4 border-b border-dark-700/50">
+      <h3 class="text-sm font-semibold text-dark-400">Archived Accounts</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-dark-400 text-xs uppercase">
+          <th class="px-5 py-3 text-left">Account</th><th class="px-5 py-3 text-right">Final Balance</th><th class="px-5 py-3 text-center">Status</th>
+        </tr></thead>
+        <tbody id="archivedTable"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<!-- Add Data Modal -->
+<div id="addDataModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center">
+  <div class="bg-dark-800 rounded-2xl border border-dark-700 p-6 w-full max-w-md mx-4">
+    <h3 class="text-lg font-semibold text-white mb-4">Add Monthly Data</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-dark-400 block mb-1">Account</label>
+        <select id="modalAccount" class="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white"></select>
+      </div>
+      <div>
+        <label class="text-xs text-dark-400 block mb-1">Month (YYYY-MM)</label>
+        <input type="month" id="modalMonth" class="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-dark-400 block mb-1">Contribution ($)</label>
+          <input type="number" id="modalContrib" value="0" min="0" step="0.01" class="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white">
+        </div>
+        <div>
+          <label class="text-xs text-dark-400 block mb-1">Withdrawal ($)</label>
+          <input type="number" id="modalWithdraw" value="0" min="0" step="0.01" class="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white">
+        </div>
+      </div>
+      <div>
+        <label class="text-xs text-dark-400 block mb-1">End-of-Month Balance ($)</label>
+        <input type="number" id="modalBalance" value="0" min="0" step="0.01" class="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white">
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="submitAddData()" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm font-medium transition">Add Entry</button>
+      <button onclick="closeAddDataModal()" class="flex-1 bg-dark-600 hover:bg-dark-500 text-white py-2 rounded-lg text-sm font-medium transition">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-6 right-6 bg-dark-700 border border-dark-600 rounded-xl px-5 py-3 text-sm text-white shadow-xl z-50 hidden transition-all transform translate-y-4 opacity-0">
+  <span id="toastMsg"></span>
+</div>
+
+<script>
+// ===================== EMBEDDED DATA =====================
+const RAW = {"portfolio":[["2015-03-01",426,0,420.45,"2015-03-31",-0.02605634],["2015-04-01",0,2,420.45,"2015-04-30",0.00476815],["2015-05-01",21800,2,22358.34,"2015-05-31",0.01235837],["2015-06-01",1000,0,23053.9,"2015-06-30",-0.01331855],["2015-07-01",500,7000,16853.02,"2015-07-31",0.0151041],["2015-08-01",0,0,14749.89,"2015-08-31",-0.12479247],["2015-09-01",0,0,13809.57,"2015-09-30",-0.06375098],["2015-10-01",0,0,14945.32,"2015-10-31",0.08224369],["2015-11-01",0,0,14831.25,"2015-11-30",-0.00763249],["2015-12-01",0,0,14483.92,"2015-12-31",-0.02341879],["2016-01-01",0,0,12267.52,"2016-01-31",-0.15302487],["2016-02-01",1000,0,12531.64,"2016-02-29",-0.05763688],["2016-03-01",10000,0,23694.07,"2016-03-31",0.06630469],["2016-04-01",784.49,0,29596.93,"2016-04-30",0.21250117],["2016-05-01",210,0,29819.61,"2016-05-31",0.00042691],["2016-06-01",0,29138.56,181.1,"2016-06-30",-0.0327829],["2016-07-01",0,0,188.13,"2016-07-31",0.03881833],["2016-08-01",0,0,181.29,"2016-08-31",-0.03635784],["2016-09-01",0,0,164.17,"2016-09-30",-0.09443433],["2016-10-01",0,0,167.51,"2016-10-31",0.02034476],["2016-11-01",0,0,174.7,"2016-11-30",0.04292281],["2016-12-01",0,0,176.39,"2016-12-31",0.00967373],["2017-01-01",0,0,176.39,"2017-01-31",0],["2017-02-01",0,0,176.39,"2017-02-28",0],["2017-03-01",0,0,195.18,"2017-03-31",0.10652531],["2017-04-01",110.52,0,313.83,"2017-04-30",0.03246287],["2017-05-01",110.52,0,424.35,"2017-05-31",0.0],["2017-06-01",110.52,0,531.65,"2017-06-30",-0.00671379],["2017-07-01",110.53,0,631.15,"2017-07-31",-0.01879318],["2017-08-01",110.53,0,735.14,"2017-08-31",-0.00952776],["2017-09-01",4631.73,0,5350.64,"2017-09-30",-0.00531956],["2017-10-01",6510.53,0,12232.09,"2017-10-31",0.04310064],["2017-11-01",110.53,0,12223.29,"2017-11-30",-0.00971161],["2017-12-01",110.53,0,12390.75,"2017-12-31",0.00463654],["2018-01-01",1350,0,15192.81,"2018-01-31",0.11113484],["2018-02-01",0,342.57,12849.14,"2018-02-28",-0.1332155],["2018-03-01",13184.93,0,25362.54,"2018-03-31",-0.03454087],["2018-04-01",200,74.29,27205.43,"2018-04-30",0.06753799],["2018-05-01",200,56,29294.14,"2018-05-31",0.07129374],["2018-06-01",3690.53,881.45,37058.54,"2018-06-30",0.16141802],["2018-07-01",300,2.88,40779.84,"2018-07-31",0.09203028],["2018-08-01",400,124.42,37547.87,"2018-08-31",-0.08572222],["2018-09-01",34208.96,5010,64707.94,"2018-09-30",-0.03909863],["2018-10-01",5632.21,1453.36,56589.13,"2018-10-31",-0.18410397],["2018-11-01",1902,51.47,58727.86,"2018-11-30",0.00501092],["2018-12-01",3800,580.87,56085.34,"2018-12-31",-0.09714783],["2019-01-01",2930.87,6.64,65972.93,"2019-01-31",0.12100205],["2019-02-01",1000,145,69768.27,"2019-02-28",0.04428194],["2019-03-01",2530,1541.23,71684.14,"2019-03-31",0.01319478],["2019-04-01",2068.98,1496.98,75967.61,"2019-04-30",0.05156958],["2019-05-01",2814,500,72224.17,"2019-05-31",-0.07854095],["2019-06-01",3481.72,2481.72,79368.7,"2019-06-30",0.08449089],["2019-07-01",9316.92,5768.41,84386.93,"2019-07-31",0.01811272],["2019-08-01",4734.21,838.29,84741.32,"2019-08-31",-0.04102084],["2019-09-01",2284.62,1729.97,84646.28,"2019-09-30",-0.00764174],["2019-10-01",1784.52,0,88874.96,"2019-10-31",0.02857379],["2019-11-01",2118.77,710.13,95668.48,"2019-11-30",0.06011301],["2019-12-01",1977,0,98626.19,"2019-12-31",0.01014629],["2020-01-01",3884.58,0,107817.76,"2020-01-31",0.05276991],["2020-02-01",1600,504,105188.09,"2020-02-29",-0.03438051],["2020-03-01",7809.91,541,103775.2,"2020-03-31",-0.07977942],["2020-04-01",6778.4,150,131385.97,"2020-04-30",0.19593321],["2020-05-01",7697.37,1336.05,148963.52,"2020-05-31",0.08335075],["2020-06-01",5813.18,0,171076.98,"2020-06-30",0.1073304],["2020-07-01",1624,0,188813.33,"2020-07-31",0.09373696],["2020-08-01",6033.93,102,215705.57,"2020-08-31",0.10929392],["2020-09-01",1624,0,212487.75,"2020-09-30",-0.02236225],["2020-10-01",600,0,205758.83,"2020-10-31",-0.0344424],["2020-11-01",1424,0,238000.71,"2020-11-30",0.14926021],["2020-12-01",3318.62,5896,238274.47,"2020-12-31",0.01204476],["2021-01-01",7442.91,1000,248006.48,"2021-01-31",0.01361969],["2021-02-01",1067.67,10411.49,243198.61,"2021-02-28",0.0186408],["2021-03-01",17975.97,0,243183.18,"2021-03-31",-0.07134162],["2021-04-01",1312.7,3000,255303.37,"2021-04-30",0.05697581],["2021-05-01",846.16,4000,239606.99,"2021-05-31",-0.04943332],["2021-06-01",2770.16,647,275918.02,"2021-06-30",0.14205374],["2021-07-01",6612.58,3224,274905.11,"2021-07-31",-0.0158548],["2021-08-01",13119.86,8170.32,296369.96,"2021-08-31",0.0595404],["2021-09-01",8842.03,7288.29,285611.95,"2021-09-30",-0.04143322],["2021-10-01",13043.56,7971.77,325114.09,"2021-10-31",0.11948849],["2021-11-01",11398.09,7432.59,414156.52,"2021-11-30",0.26009707],["2021-12-01",6781,4536.12,373913.71,"2021-12-31",-0.1023112],["2022-01-01",6573.23,4327.78,308816.48,"2022-01-31",-0.17956303],["2022-02-01",10276.32,3503.07,324554.75,"2022-02-28",0.02871535],["2022-03-01",73411.07,54255.79,318165.87,"2022-03-31",-0.07644922],["2022-04-01",9920.72,7726,259172.28,"2022-04-30",-0.19165474],["2022-05-01",6817.54,7487.66,235601.01,"2022-05-31",-0.08847704],["2022-06-01",6897.31,3291.6,212116.4,"2022-06-30",-0.11411069],["2022-07-01",6813.76,2858,241602.86,"2022-07-31",0.1192498],["2022-08-01",7536.41,3659,249848.59,"2022-08-31",0.01793665],["2022-09-01",9507.15,3887,231619.54,"2022-09-30",-0.09439296],["2022-10-01",78279.77,2809.82,304621,"2022-10-31",-0.00916446],["2022-11-01",6293.64,5607.34,311844.92,"2022-11-30",0.02143734],["2022-12-01",7256.21,3150,290612.49,"2022-12-31",-0.08072252],["2023-01-01",6512.16,1919,332389.85,"2023-01-31",0.12694793],["2023-02-01",6087.54,1444.65,332021.59,"2023-02-28",-0.01497156],["2023-03-01",7364.73,0,365713.62,"2023-03-31",0.07842416],["2023-04-01",4775.48,0,361710.76,"2023-04-30",-0.02384762],["2023-05-01",8065.74,0,399243.15,"2023-05-31",0.08056641],["2023-06-01",7866.74,0,422774.32,"2023-06-30",0.03885254],["2023-07-01",6977.26,0,466047.78,"2023-07-31",0.08514979],["2023-08-01",11979.96,2783.24,439102.22,"2023-08-31",-0.0767929],["2023-09-01",9185.39,1251.27,427149.68,"2023-09-30",-0.04488386],["2023-10-01",13180.32,6000,418767.06,"2023-10-31",-0.03613072],["2023-11-01",4678.98,0,484155.2,"2023-11-30",0.14416579],["2023-12-01",5251.16,1480,515185.95,"2023-12-31",0.05608499],["2024-01-01",8093.66,120,529801.01,"2024-01-31",0.01279227],["2024-02-01",20551.73,0,595603.86,"2024-02-29",0.08378644],["2024-03-01",17975.97,0,627135.9,"2024-03-31",0.02242185],["2024-04-01",13127.79,2167,599761.5,"2024-04-30",-0.06059785],["2024-05-01",9254.61,2141.94,626308.31,"2024-05-31",0.03221211],["2024-06-01",8047.65,1093.87,665617.85,"2024-06-30",0.05137587],["2024-07-01",12733.12,5599.19,659327.12,"2024-07-31",-0.02006121],["2024-08-01",13887.2,16642.72,692542.5,"2024-08-31",0.05467123],["2024-09-01",9096.43,3151.81,717673.56,"2024-09-30",0.02758595],["2024-10-01",11688.2,3799.44,735248.22,"2024-10-31",0.01342248],["2024-11-01",7212.6,0,822509.83,"2024-11-30",0.10834205],["2024-12-01",11771.5,7622.45,789934.12,"2024-12-31",-0.0445373],["2025-01-01",13047.32,11647.46,845002.76,"2025-01-31",0.06788068],["2025-02-01",10669.58,0,809262.23,"2025-02-28",-0.05457846],["2025-03-01",16750.82,0,756296.05,"2025-03-31",-0.08526638],["2025-04-01",6525,0,789316.37,"2025-04-30",0.03488252],["2025-05-01",8227.84,5200,875053.11,"2025-05-31",0.10458489],["2025-06-01",6186.86,0,922812.54,"2025-06-30",0.04734127],["2025-07-01",39875.53,40150,961542.46,"2025-07-31",0.04227315],["2025-08-01",21210.43,2000.28,981714.1,"2025-08-31",0.00099006],["2025-09-01",5942.6,17000,972746,"2025-09-30",0.00214027],["2025-10-01",5938.98,4000,1004016.55,"2025-10-31",0.03012335],["2025-11-01",8246.81,2855,950055,"2025-11-30",-0.05895761],["2025-12-01",7305.25,2987.21,953326,"2025-12-31",-0.00109958],["2026-01-01",5272.01,3651,931213,"2026-01-31",-0.02487486],["2026-02-01",8098,2226,884897,"2026-02-28",-0.05586689]],"accounts":{"ravifidelity":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",2465.94,0,2466.79,0.00068939],["2017-10-01",0,0,2468.2,0.00057159],["2017-11-01",0,0,2301.34,-0.06760392],["2017-12-01",0,0,2222.1,-0.03443211],["2018-01-01",0,0,2797.48,0.25893524],["2018-02-01",0,0,2757.4,-0.01432718],["2018-03-01",13184.93,0,15832.68,-0.01172744],["2018-04-01",200,0,17749.55,0.10775777],["2018-05-01",200,0,18939.69,0.05547143],["2018-06-01",3206.53,0,22669.35,0.02546518],["2018-07-01",200,0,23148.5,0.0122599],["2018-08-01",200,0,26030.54,0.115364],["2018-09-01",33908.96,0,59795.95,-0.00333954],["2018-10-01",5432.21,0,54343.5,-0.17412098],["2018-11-01",1702,0,56286.37,0.00436402],["2018-12-01",1600,0,51654.09,-0.10917282],["2019-01-01",1580.87,0,60116.74,0.13122018],["2019-02-01",1000,0,63653.22,0.04184455],["2019-03-01",1530,500,66014.66,0.02074921],["2019-04-01",68.98,43.98,69873.07,0.05805808],["2019-05-01",1000,500,65180.65,-0.07404724],["2019-06-01",1000,2481.72,69001,0.08227944],["2019-07-01",1000,1500.28,69513.13,0.01472578],["2019-08-01",2000,528.23,69396.37,-0.02261284],["2019-09-01",1000,1500.14,67779.45,-0.01615097],["2019-10-01",1000,0,70692.57,0.02801897],["2019-11-01",1718.77,0,75874.83,0.04840525],["2019-12-01",1000,0,78335.46,0.01912449],["2020-01-01",1500,0,84049.82,0.05328868],["2020-02-01",1000,504,81236.53,-0.03925712],["2020-03-01",5959.91,0,82078.17,-0.06077516],["2020-04-01",5273.03,0,104673.88,0.20448261],["2020-05-01",7097.37,1336.05,117852.54,0.06896352],["2020-06-01",4213.18,0,135144.21,0.10902455],["2020-07-01",1024,0,148392.92,0.09011537],["2020-08-01",5333.93,102,168997.59,0.10180024],["2020-09-01",1024,0,163672.91,-0.03745322],["2020-10-01",0,0,157588.7,-0.03717298],["2020-11-01",1024,0,181360.23,0.14388001],["2020-12-01",2623.68,5896,181926.1,0.02135602],["2021-01-01",4896.75,1000,187187.24,0.00742023],["2021-02-01",0,8587.23,182314.15,0.02030765],["2021-03-01",11929.81,0,180190.72,-0.07464049],["2021-04-01",16.54,3000,188941.24,0.06566338],["2021-05-01",0,4000,173379.25,-0.06184826],["2021-06-01",1024,647,201115.37,0.1576279],["2021-07-01",1503.34,1024,199639.21,-0.0097117],["2021-08-01",9695.21,3588.92,215286.51,0.04707139],["2021-09-01",6195.87,5088.29,205479.69,-0.05056702],["2021-10-01",6080.6,3211.47,238977.33,0.14802513],["2021-11-01",6369.59,3927.63,236934.85,-0.01866974],["2021-12-01",1655,1256.12,205591.95,-0.13385572],["2022-01-01",1424,1024,162824.12,-0.20976442],["2022-02-01",912,0,166903.72,0.01939979],["2022-03-01",48510.4,47910.4,157484.76,-0.05992068],["2022-04-01",400,0,122412.83,-0.22495471],["2022-05-01",400,0,107119.4,-0.12799174],["2022-06-01",425,0,95282.97,-0.11423845],["2022-07-01",400,0,111798.74,0.16878162],["2022-08-01",400,0,114708.42,0.02240811],["2022-09-01",200,0,104466.88,-0.09094751],["2022-10-01",68504.28,0,167794.37,-0.03731853],["2022-11-01",3277.4,3384.34,170873.55,0.01899429],["2022-12-01",500,0,155587.45,-0.09224972],["2023-01-01",2400.98,1919,179233.15,0.14864886],["2023-02-01",1926.36,1444.65,174653.4,-0.02820163],["2023-03-01",750,0,191799.75,0.09367823],["2023-04-01",500,0,186649.21,-0.02942227],["2023-05-01",500,0,203902.2,0.08963649],["2023-06-01",760,0,212839.12,0.04002757],["2023-07-01",2673,0,234405.95,0.08821653],["2023-08-01",7801.7,2783.24,220819.11,-0.07853148],["2023-09-01",3605.57,1251.27,212305.33,-0.04895614],["2023-10-01",6501,0,213400.34,-0.0250793],["2023-11-01",500.72,0,249073.03,0.16462371],["2023-12-01",500,0,264494.91,0.05984959],["2024-01-01",725,0,268874.51,0.01379837],["2024-02-01",895,0,293769.35,0.08911206],["2024-03-01",0,0,297333.75,0.01213333],["2024-04-01",5425.75,2167,284458.68,-0.05396592],["2024-05-01",2526.01,2097.94,289252.86,0.0153373],["2024-06-01",1048.87,1049.87,309964.37,0.07160706],["2024-07-01",2180.52,2099.19,293868.46,-0.0521838],["2024-08-01",3754.6,8938.24,307745.39,0.06543803],["2024-09-01",2363.83,3151.81,316884.25,0.03229801],["2024-10-01",2155.6,2099.44,320287.87,0.01056273],["2024-11-01",180,0,363136.85,0.13318329],["2024-12-01",300,0,350762.3,-0.03488855],["2025-01-01",300,0,383337.39,0.0919748],["2025-02-01",0,0,362808.42,-0.05355327],["2025-03-01",0,0,326130.2,-0.10109528],["2025-04-01",905,0,344605.81,0.05380141],["2025-05-01",2000,2000,389596.81,0.13055787],["2025-06-01",0,0,409601.98,0.05134839],["2025-07-01",1675.79,0,424315.88,0.03176619],["2025-08-01",0,0,424471.86,0.0003676],["2025-09-01",3.54,0,422736,-0.00409778],["2025-10-01",0,4000,439696,0.04981746],["2025-11-01",0,0,404701,-0.07958908],["2025-12-01",0,0,404961,0.00064245],["2026-01-01",0,2570,375263,-0.06720241],["2026-02-01",0,0,344305,-0.08249681]],"zufidelity":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",110.52,0,110.52,0],["2017-05-01",110.52,0,221.04,0],["2017-06-01",110.52,0,331.56,0],["2017-07-01",110.53,0,442.11,5.17e-05],["2017-08-01",110.53,0,552.67,6.032e-05],["2017-09-01",165.79,0,718.5,6.294e-05],["2017-10-01",110.53,0,829.07,5.17e-05],["2017-11-01",110.53,0,939.65,5.654e-05],["2017-12-01",110.53,0,1050.27,9.046e-05],["2018-01-01",1350,0,2400.5,0.00013331],["2018-02-01",0,342.57,2058.15,9.869e-05],["2018-03-01",0,0,2058.41,0.00012633],["2018-04-01",0,74.29,1984.43,0.00015337],["2018-05-01",0,56,1928.75,0.00016356],["2018-06-01",0,866.45,1062.57,0.00018054],["2018-07-01",100,2.88,1159.92,0.000207],["2018-08-01",200,124.42,1235.75,0.00020873],["2018-09-01",300,0,1536.04,0.00020927],["2018-10-01",200,1443.36,293.02,0.00037184],["2018-11-01",200,51.47,441.64,0.00024504],["2018-12-01",200,0,641.79,0.00027694],["2019-01-01",1350,6.64,1985.68,0.00040351],["2019-02-01",0,145,1841.21,0.00027703],["2019-03-01",0,1041.23,800.48,0.00037862],["2019-04-01",0,0,819.61,0.02389816],["2019-05-01",0,0,767.54,-0.06353022],["2019-06-01",0,0,821.61,0.07044584],["2019-07-01",0,0.54,832.9,0.01440329],["2019-08-01",0,310.06,508.84,-0.02065293],["2019-09-01",0,229.83,279.41,0.00101542],["2019-10-01",0,0,279.63,0.00078737],["2019-11-01",0,0,281.72,0.00747416],["2019-12-01",0,0,290.25,0.03027829],["2020-01-01",1600,0,1879.78,-0.0096033],["2020-02-01",200,0,1911.1,-0.08520139],["2020-03-01",300,0,1989.25,-0.1076367],["2020-04-01",200,0,2455.27,0.12732799],["2020-05-01",200,0,2782.36,0.04973643],["2020-06-01",200,0,3032.19,0.01728792],["2020-07-01",200,0,3386.68,0.04932332],["2020-08-01",300,0,3902.21,0.06094133],["2020-09-01",200,0,4016.87,-0.02132322],["2020-10-01",200,0,4111.67,-0.02555339],["2020-11-01",200,0,4914.52,0.143138],["2020-12-01",294.94,0,5284.8,0.01488347],["2021-01-01",1846.16,0,7238.45,0.01731509],["2021-02-01",667.67,0,7032.83,-0.11532714],["2021-03-01",5446.16,0,11846.48,-0.06483352],["2021-04-01",446.16,0,12124.41,-0.01393837],["2021-05-01",446.16,0,13018.78,0.03629969],["2021-06-01",1546.16,0,15990.71,0.10337764],["2021-07-01",3969.24,2200,16161.43,-0.09472526],["2021-08-01",3424.65,4078.49,18250.56,0.17322734],["2021-09-01",2646.16,2200,19896.95,0.06496987],["2021-10-01",6362.96,4760.3,22306.07,0.03896266],["2021-11-01",3505.4,3504.96,118112.99,4.29504324],["2021-12-01",3279.82,3280,113703.06,-0.03733504],["2022-01-01",3303.05,3303.78,97110.67,-0.14592143],["2022-02-01",7006.14,3503.07,106776.22,0.06233403],["2022-03-01",7996.92,6345.39,98631.09,-0.09104535],["2022-04-01",2927.29,3096,74974.57,-0.23834184],["2022-05-01",2544.83,3187.66,64198.09,-0.13574309],["2022-06-01",2511.58,2091.6,54866.3,-0.151406],["2022-07-01",2478.32,2058,59491.62,0.07634841],["2022-08-01",2478.34,2059,63976.12,0.06809166],["2022-09-01",3717.49,3087,58441.34,-0.09589577],["2022-10-01",3462.65,2014.82,59326.11,-0.00951673],["2022-11-01",900,1282,56913.95,-0.03433087],["2022-12-01",450,450,51238.58,-0.09971843],["2023-01-01",0,0,58662.38,0.14488692],["2023-02-01",0,0,60005.73,0.02289968],["2023-03-01",0,0,64757.79,0.07919344],["2023-04-01",0,0,61521.8,-0.04997067],["2023-05-01",0,0,71990.02,0.17015464],["2023-06-01",0,0,76415.73,0.06147672],["2023-07-01",0,0,88416.71,0.15704856],["2023-08-01",0,0,74397.46,-0.15855883],["2023-09-01",0,0,70697.16,-0.04973691],["2023-10-01",0,0,64935.66,-0.08149549],["2023-11-01",0,0,76240.43,0.17409186],["2023-12-01",0,0,82282.54,0.07925073],["2024-01-01",0,0,81617.8,-0.00807875],["2024-02-01",0,0,89598.61,0.09778271],["2024-03-01",0,0,90441.76,0.0094103],["2024-04-01",0,0,82985.52,-0.08244245],["2024-05-01",0,0,85967.19,0.03593],["2024-06-01",0,0,90567.34,0.05351053],["2024-07-01",0,0,87962.62,-0.02876004],["2024-08-01",0,0,99014.08,0.12563814],["2024-09-01",0,0,101924.49,0.0293939],["2024-10-01",0,0,106605.99,0.04593106],["2024-11-01",0,0,120630.23,0.13155208],["2024-12-01",0,0,111653.78,-0.07441294],["2025-01-01",0,0,119233.59,0.06788673],["2025-02-01",0,0,108033.95,-0.09393024],["2025-03-01",0,0,93200.51,-0.13730351],["2025-04-01",0,0,98863.12,0.06075729],["2025-05-01",0,0,113856.44,0.15165736],["2025-06-01",0,0,120194.76,0.0556694],["2025-07-01",0,0,126468.75,0.05219853],["2025-08-01",0,0,117822.17,-0.0683693],["2025-09-01",0,0,111187,-0.05631512],["2025-10-01",0,0,114177,0.02689163],["2025-11-01",0,0,101034,-0.11511075],["2025-12-01",1963.65,983,101236,-0.00766959],["2026-01-01",196.48,1081,88963,-0.11298797],["2026-02-01",776,0,80532,-0.10304305]],"ravirh":[["2015-03-01",426,0,420.45,-0.02605634],["2015-04-01",0,2,420.45,0.00476815],["2015-05-01",21800,2,22358.34,0.01235837],["2015-06-01",1000,0,23053.9,-0.01331855],["2015-07-01",500,7000,16853.02,0.0151041],["2015-08-01",0,0,14749.89,-0.12479247],["2015-09-01",0,0,13809.57,-0.06375098],["2015-10-01",0,0,14945.32,0.08224369],["2015-11-01",0,0,14831.25,-0.00763249],["2015-12-01",0,0,14483.92,-0.02341879],["2016-01-01",0,0,12267.52,-0.15302487],["2016-02-01",1000,0,12531.64,-0.05763688],["2016-03-01",10000,0,23694.07,0.06630469],["2016-04-01",210,0,29022.44,0.21506597],["2016-05-01",210,0,29245.12,0.00043533],["2016-06-01",0,28564.07,181.1,-0.03341223],["2016-07-01",0,0,188.13,0.03881833],["2016-08-01",0,0,181.29,-0.03635784],["2016-09-01",0,0,164.17,-0.09443433],["2016-10-01",0,0,167.51,0.02034476],["2016-11-01",0,0,174.7,0.04292281],["2016-12-01",0,0,176.39,0.00967373],["2017-01-01",0,0,176.39,0],["2017-02-01",0,0,176.39,0],["2017-03-01",0,0,195.18,0.10652531],["2017-04-01",0,0,203.31,0.04165386],["2017-05-01",0,0,203.31,0],["2017-06-01",0,0,200.09,-0.01583788],["2017-07-01",0,0,189.04,-0.05522515],["2017-08-01",0,0,182.47,-0.03475455],["2017-09-01",2000,0,2165.35,-0.01447817],["2017-10-01",6400,0,8934.82,0.06886224],["2017-11-01",0,0,8982.3,0.00531404],["2017-12-01",0,0,9118.38,0.01514979],["2018-01-01",0,0,9994.83,0.09611905],["2018-02-01",0,0,8033.59,-0.19622545],["2018-03-01",0,0,7471.45,-0.0699737],["2018-04-01",0,0,7471.45,0],["2018-05-01",0,0,8425.7,0.12771952],["2018-06-01",5,15,13005.68,0.54508295],["2018-07-01",0,0,15811.04,0.21570268],["2018-08-01",0,0,9700.71,-0.38645971],["2018-09-01",0,5010,2795.07,-0.2634403],["2018-10-01",0,10,1387.81,-0.50079747],["2018-11-01",0,0,1418.98,0.02245985],["2018-12-01",0,0,1792.46,0.26320315],["2019-01-01",0,0,1645.44,-0.08202136],["2019-02-01",0,0,1938.37,0.17802533],["2019-03-01",1000,0,2212.29,-0.29777269],["2019-04-01",0,1453,677.8,-0.05484624],["2019-05-01",0,0,375.44,-0.44609029],["2019-06-01",0,0,428.52,0.14138078],["2019-07-01",0,0,503.72,0.17548773],["2019-08-01",0,0,433.13,-0.14013738],["2019-09-01",0,0,499.11,0.15233302],["2019-10-01",0,0,524.37,0.05061009],["2019-11-01",0,0,573.72,0.09411294],["2019-12-01",0,0,558.46,-0.02659834],["2020-01-01",0,0,608.16,0.08899474],["2020-02-01",0,0,558.46,-0.08172192],["2020-03-01",0,0,304.78,-0.45424919],["2020-04-01",166.89,0,506.82,0.09054028],["2020-05-01",0,0,652.62,0.2876761],["2020-06-01",0,0,633.58,-0.02917471],["2020-07-01",0,0,295.73,-0.53323969],["2020-08-01",0,0,555.77,0.87931559],["2020-09-01",0,0,480.97,-0.13458805],["2020-10-01",0,0,556.42,0.15687049],["2020-11-01",0,0,1161.44,1.08734409],["2020-12-01",0,0,888.94,-0.23462254],["2021-01-01",300,0,1718.85,0.5100487],["2021-02-01",0,300,844.28,-0.36623642],["2021-03-01",0,0,773.04,-0.08437959],["2021-04-01",0,0,625.71,-0.19058522],["2021-05-01",0,0,420.48,-0.3279954],["2021-06-01",0,0,427.43,0.01652873],["2021-07-01",0,0,375.04,-0.12256978],["2021-08-01",0,0,296.64,-0.20904437],["2021-09-01",0,0,235.71,-0.20540049],["2021-10-01",0,0,282.77,0.19965211],["2021-11-01",0,0,181.7,-0.3574283],["2021-12-01",0,0,172.78,-0.04909191],["2022-01-01",0,0,142.66,-0.17432573],["2022-02-01",0,0,137.62,-0.03532875],["2022-03-01",0,0,93.43,-0.32110158],["2022-04-01",0,0,86.7,-0.07203254],["2022-05-01",0,0,52.52,-0.39423299],["2022-06-01",0,0,53.13,0.01161462],["2022-07-01",0,0,58.5,0.10107284],["2022-08-01",0,0,86.17,0.47299145],["2022-09-01",0,0,70.79,-0.17848439],["2022-10-01",0,0,79.2,0.11880209],["2022-11-01",0,0,55.88,-0.29444444],["2022-12-01",0,0,62.21,0.11327845],["2023-01-01",0,0,73.92,0.1882334],["2023-02-01",0,0,41.48,-0.43885281],["2023-03-01",0,0,50.52,0.21793635],["2023-04-01",0,0,52.94,0.04790182],["2023-05-01",0,0,51.83,-0.02096713],["2023-06-01",0,0,49.47,-0.04553347],["2023-07-01",0,0,46.28,-0.06448353],["2023-08-01",0,0,49.7,0.07389801],["2023-09-01",0,0,47.83,-0.03762575],["2023-10-01",0,0,54.99,0.14969684],["2023-11-01",0,0,72.66,0.32133115],["2023-12-01",0,0,83.5,0.149188],["2024-01-01",0,0,83.5,0],["2024-02-01",0,0,88.93,0.06502994],["2024-03-01",0,0,55.07,-0.3807489],["2024-04-01",0,0,48.13,-0.12602143],["2024-05-01",0,0,55.29,0.14876376],["2024-06-01",0,0,53.25,-0.03689636],["2024-07-01",3550,0,4007.02,0.22085054],["2024-08-01",0,3400,1958.05,0.58561694],["2024-09-01",0,0,1843.63,-0.05843569],["2024-10-01",0,0,1901.38,0.03132407],["2024-11-01",0,0,1178.32,-0.38028169],["2024-12-01",0,0,1318.7,0.11913572],["2025-01-01",0,0,1114.6,-0.15477364],["2025-02-01",0,0,1236.06,0.10897183],["2025-03-01",0,0,1307.34,0.0576671],["2025-04-01",0,0,1266.44,-0.0312849],["2025-05-01",0,0,1402.61,0.10752187],["2025-06-01",0,0,1510.22,0.07672126],["2025-07-01",0,0,1627.83,0.07787607],["2025-08-01",0,0,1607.07,-0.01275317],["2025-09-01",0,0,1540,-0.04173434],["2025-10-01",0,0,1726,0.12077922],["2025-11-01",0,0,1659,-0.03881808],["2025-12-01",0,0,1542,-0.07052441],["2026-01-01",0,0,1456,-0.05577173],["2026-02-01",0,0,1412,-0.03021978]],"zurh":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",574.49,0,574.49,0],["2016-05-01",0,0,574.49,0],["2016-06-01",0,574.49,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",479,0,320.94,-0.65995825],["2018-07-01",0,0,660.38,1.05764317],["2018-08-01",0,0,580.87,-0.12040038],["2018-09-01",0,0,580.88,1.722e-05],["2018-10-01",0,0,564.8,-0.02768214],["2018-11-01",0,0,580.87,0.02845255],["2018-12-01",0,580.87,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",2000,0,1843.01,-0.15699],["2019-05-01",1814,0,3740.69,0.03042898],["2019-06-01",2481.72,0,6563.76,0.06852285],["2019-07-01",2960.24,0,9778.49,0.03163772],["2019-08-01",2028.23,0,10188.98,-0.14989338],["2019-09-01",0,0,10445.31,0.02515757],["2019-10-01",0,0,10648.39,0.01944222],["2019-11-01",0,710.13,11772.21,0.17816886],["2019-12-01",0,0,11840.02,0.00576018],["2020-01-01",0,0,12166,0.02753205],["2020-02-01",0,0,12702,0.04405721],["2020-03-01",0,541,10402,-0.14149539],["2020-04-01",150,150,12349,0.18717554],["2020-05-01",0,0,14909,0.20730424],["2020-06-01",1000,0,19157,0.2107859],["2020-07-01",0,0,22489,0.1739312],["2020-08-01",0,0,26153,0.1629241],["2020-09-01",0,0,28725,0.09834436],["2020-10-01",0,0,27921,-0.02798956],["2020-11-01",0,0,33088,0.18505784],["2020-12-01",0,0,31603,-0.04488032],["2021-01-01",0,0,32989,0.0438566],["2021-02-01",0,1524.26,32775,0.04065738],["2021-03-01",0,0,29814,-0.09034325],["2021-04-01",450,0,31604,0.04460868],["2021-05-01",0,0,30188,-0.04480446],["2021-06-01",0,0,35242,0.16741752],["2021-07-01",1140,0,36356,-0.00072601],["2021-08-01",0,461,38660,0.07653873],["2021-09-01",0,0,36999,-0.0429643],["2021-10-01",0,0,38819,0.04919052],["2021-11-01",0,0,33416,-0.13918442],["2021-12-01",0,0,26320,-0.21235336],["2022-01-01",0,0,20257,-0.23035714],["2022-02-01",0,0,20784,0.0260157],["2022-03-01",0,0,13583,-0.34646844],["2022-04-01",400,0,11359,-0.19037945],["2022-05-01",800,800,10310,-0.09234968],["2022-06-01",800,1200,9129,-0.07725025],["2022-07-01",800,800,9727,0.06550553],["2022-08-01",800,800,10116,0.03999178],["2022-09-01",1200,800,9237.93,-0.12389201],["2022-10-01",800,795,9838.87,0.06449267],["2022-11-01",0,0,10497.06,0.06689691],["2022-12-01",0,0,8789.28,-0.16269127],["2023-01-01",0,0,10476.91,0.19201004],["2023-02-01",0,0,11191.52,0.06820809],["2023-03-01",0,0,12346.8,0.10322816],["2023-04-01",0,0,12585.65,0.01934509],["2023-05-01",459,0,14242,0.09343238],["2023-06-01",0,0,15235,0.06972335],["2023-07-01",0,0,16499.62,0.08300755],["2023-08-01",0,0,15475.95,-0.06204203],["2023-09-01",0,0,14646.59,-0.05359025],["2023-10-01",0,0,13929.56,-0.04895542],["2023-11-01",0,0,16100.5,0.1558513],["2023-12-01",0,0,16408,0.01909879],["2024-01-01",0,0,16501.66,0.00570819],["2024-02-01",0,0,17682.31,0.07154735],["2024-03-01",0,0,17878.21,0.01107887],["2024-04-01",0,0,16706.02,-0.06556529],["2024-05-01",0,0,17090.43,0.02301027],["2024-06-01",0,0,18141,0.06147124],["2024-07-01",0,0,16797.16,-0.0740775],["2024-08-01",0,0,18652.58,0.11046034],["2024-09-01",0,0,19436.19,0.04201081],["2024-10-01",0,0,20043.12,0.0312268],["2024-11-01",0,0,22834.14,0.13925078],["2024-12-01",0,0,21626,-0.05290937],["2025-01-01",0,0,22431.14,0.03723019],["2025-02-01",0,0,18800,-0.16187942],["2025-03-01",0,0,16493,-0.12271277],["2025-04-01",0,0,16854,0.02188807],["2025-05-01",0,0,19936,0.1828646],["2025-06-01",0,0,20998,0.05327047],["2025-07-01",0,0,22851,0.0882465],["2025-08-01",0,0,21647,-0.05268916],["2025-09-01",0,0,21941,0.01358156],["2025-10-01",0,0,23569.15,0.07420582],["2025-11-01",0,0,21076,-0.10578023],["2025-12-01",0,0,21148,0.00341621],["2026-01-01",0,0,18795,-0.11126348],["2026-02-01",0,0,16576,-0.11806331]],"empower":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",600,0,600,0],["2021-11-01",1523.1,0,2096,-0.01990379],["2021-12-01",1846.18,0,4053,0.03670642],["2022-01-01",1846.18,0,5679.03,-0.04424156],["2022-02-01",1846.18,0,7333.53,-0.0290331],["2022-03-01",1703.78,0,9387.47,0.0427785],["2022-04-01",2890.65,0,11314.18,-0.0889835],["2022-05-01",1967.56,0,13320,0.00311109],["2022-06-01",2014.4,0,14210,-0.07848009],["2022-07-01",2061.24,0,17683,0.0926314],["2022-08-01",2061.24,0,18908.88,-0.04463915],["2022-09-01",3091.86,0,20092.09,-0.09331057],["2022-10-01",2061.24,0,23852.04,0.08042103],["2022-11-01",2061.24,0,26480,0.0227757],["2022-12-01",307.91,2700,23874,-0.00846031],["2023-01-01",0,0,25356,0.0620759],["2023-02-01",0,0,24806.62,-0.02166667],["2023-03-01",0,0,25627,0.03307101],["2023-04-01",0,0,26018,0.01525735],["2023-05-01",0,0,26121,0.0039588],["2023-06-01",0,0,27488,0.05233337],["2023-07-01",0,0,28665,0.04281868],["2023-08-01",0,0,28170,-0.01726845],["2023-09-01",0,0,26800,-0.0486333],["2023-10-01",0,0,26312.63,-0.01818545],["2023-11-01",0,0,28697,0.09061694],["2023-12-01",0,0,29989,0.04502213],["2024-01-01",0,0,30479.64,0.01636067],["2024-02-01",0,0,31922.64,0.04734308],["2024-03-01",0,0,33110,0.03719492],["2024-04-01",0,0,31736,-0.04149804],["2024-05-01",0,0,33031,0.04080539],["2024-06-01",0,0,34484,0.04398898],["2024-07-01",0,0,34877,0.01139659],["2024-08-01",0,0,35711.73,0.02393354],["2024-09-01",0,0,36455.52,0.02082761],["2024-10-01",0,0,36111.13,-0.00944685],["2024-11-01",0,0,38216.8,0.05831083],["2024-12-01",0,0,37285,-0.02438195],["2025-01-01",0,0,38029,0.01995441],["2025-02-01",0,0,37528,-0.01317416],["2025-03-01",0,0,35402,-0.05665103],["2025-04-01",0,0,35807,0.01144003],["2025-05-01",0,0,37341,0.04284079],["2025-06-01",0,0,39505,0.05795238],["2025-07-01",0,0,40819,0.03326161],["2025-08-01",0,0,41308,0.01197972],["2025-09-01",0,0,42448,0.02759756],["2025-10-01",0,0,43569.15,0.02641232],["2025-11-01",0,0,43686,0.00268194],["2025-12-01",0,0,43885,0.00455524],["2026-01-01",0,0,44600,0.01629258],["2026-02-01",0,0,44003,-0.01338565]],"alight":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",0,0,0,0],["2021-11-01",0,0,0,0],["2021-12-01",0,0,0,0],["2022-01-01",0,0,0,0],["2022-02-01",0,0,0,0],["2022-03-01",0,0,0,0],["2022-04-01",0,0,0,0],["2022-05-01",0,0,0,0],["2022-06-01",0,0,0,0],["2022-07-01",0,0,0,0],["2022-08-01",0,0,0,0],["2022-09-01",0,0,0,0],["2022-10-01",0,0,0,0],["2022-11-01",0,0,0,0],["2022-12-01",5060.8,0,4995.3,-0.02588524],["2023-01-01",2236.18,0,7623.67,0.06415262],["2023-02-01",2236.18,0,9629.45,-0.02635625],["2023-03-01",3656.73,0,13687.95,0.03506515],["2023-04-01",2236.18,0,16209.96,0.01930496],["2023-05-01",2236.18,0,18590,0.00830215],["2023-06-01",2236.18,0,21921,0.05555181],["2023-07-01",2236.18,0,25261,0.04791075],["2023-08-01",2303.26,0,27248,-0.01197382],["2023-09-01",2303.26,0,29551.26,0],["2023-10-01",2303.26,0,30930.83,-0.03008479],["2023-11-01",2303.26,0,36099.2,0.08930456],["2023-12-01",2303.26,0,38829,0.01145048],["2024-01-01",2303.26,0,41817.19,0.01713155],["2024-02-01",2303.26,0,46159.3,0.04744952],["2024-03-01",12858.42,0,60922.9,0.03622807],["2024-04-01",1997.78,0,60398.78,-0.04072718],["2024-05-01",1993.76,0,65393.03,0.04887137],["2024-06-01",1993.76,0,69754.29,0.03566054],["2024-07-01",1997.76,0,72593.12,0.01188738],["2024-08-01",1997.76,0,77424.51,0.03850459],["2024-09-01",1997.76,0,81100.08,0.02139425],["2024-10-01",1997.76,0,83882.31,0.00955518],["2024-11-01",1997.76,0,89165.33,0.03870422],["2024-12-01",1997.76,0,88905,-0.02504419],["2025-01-01",2996.64,0,94396.36,0.02759545],["2025-02-01",1997.76,0,95127.8,-0.01327446],["2025-03-01",12519,0,102173,-0.05398901],["2025-04-01",2251,0,103777,-0.0062634],["2025-05-01",2443.54,0,112825,0.06290036],["2025-06-01",2443.54,0,121094,0.05107957],["2025-07-01",2443.54,0,126272,0.02235574],["2025-08-01",3665.31,0,132542,0.02033252],["2025-09-01",2315,0,139716,0.03634269],["2025-10-01",2314.92,0,145360.28,0.02363369],["2025-11-01",1867.91,0,147629,0.00273975],["2025-12-01",0,0,147714,0.00057577],["2026-01-01",2314.94,0,153337,0.02222091],["2026-02-01",1157,0,153533,-0.00624369]],"m1":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",500,0,459,-0.164],["2019-10-01",0,0,491,0.06971678],["2019-11-01",0,0,543,0.10590631],["2019-12-01",0,0,407,-0.25046041],["2020-01-01",0,0,548,0.34643735],["2020-02-01",0,0,540,-0.01459854],["2020-03-01",0,0,489,-0.09444444],["2020-04-01",0,0,585,0.19631902],["2020-05-01",0,0,649,0.10940171],["2020-06-01",0,0,605,-0.06779661],["2020-07-01",0,0,585,-0.03305785],["2020-08-01",0,0,661,0.12991453],["2020-09-01",0,0,712,0.07715582],["2020-10-01",0,0,691.04,-0.0294382],["2020-11-01",0,0,785.52,0.13672146],["2020-12-01",0,0,873.63,0.11216774],["2021-01-01",0,0,994.94,0.13885741],["2021-02-01",0,0,991.35,-0.00360826],["2021-03-01",0,0,982.94,-0.00848338],["2021-04-01",0,0,966.01,-0.01722384],["2021-05-01",0,0,785.48,-0.18688212],["2021-06-01",0,0,865.51,0.10188674],["2021-07-01",0,0,8.43,-0.99025825],["2021-08-01",0,0,937.25,110.15948814],["2021-09-01",0,0,777.6,-0.17033876],["2021-10-01",0,0,843.92,0.08528807],["2021-11-01",0,0,718.98,-0.14804721],["2021-12-01",0,0,572.92,-0.20314891],["2022-01-01",0,0,424,-0.25993158],["2022-02-01",512,0,897.66,-0.05638235],["2022-03-01",15199.97,0,16822.12,0.08525774],["2022-04-01",3302.78,4630,18759,0.20200501],["2022-05-01",1105.15,3500,20239,0.22064365],["2022-06-01",1146.33,0,20036,-0.06483372],["2022-07-01",1074.2,0,22784,0.08135867],["2022-08-01",1796.83,800,22793,-0.04242816],["2022-09-01",1297.8,0,21628.99,-0.10501751],["2022-10-01",3451.6,0,25000.45,-0.00343142],["2022-11-01",55,941,27594.94,0.14172848],["2022-12-01",0,0,26150.49,-0.05234474],["2023-01-01",0,0,27661.15,0.05776794],["2023-02-01",0,0,27045.52,-0.02225612],["2023-03-01",783,0,29937,0.076848],["2023-04-01",0,0,28730,-0.040318],["2023-05-01",0,0,29582,0.02965541],["2023-06-01",0,0,30282,0.02366304],["2023-07-01",0,0,30484,0.00667063],["2023-08-01",0,0,29551,-0.03060622],["2023-09-01",0,0,28475.46,-0.03639606],["2023-10-01",0,6000,21229.26,-0.04891766],["2023-11-01",0,0,23643.61,0.11372747],["2023-12-01",0,1480,23482,0.05756254],["2024-01-01",1055,120,26094.88,0.07005908],["2024-02-01",184.14,0,28195.8,0.073196],["2024-03-01",0,0,28746.18,0.01951993],["2024-04-01",107.08,0,25157.69,-0.12831965],["2024-05-01",0,44,25524.11,0.01632818],["2024-06-01",270.18,44,26646.27,0.03494843],["2024-07-01",0,3500,25611.72,0.09902889],["2024-08-01",3400,4304.48,25629.59,0.03666014],["2024-09-01",0,0,26138.54,0.01985791],["2024-10-01",2800,1700,25045.45,-0.08217347],["2024-11-01",0,0,27493.4,0.09774031],["2024-12-01",0,7622.45,16611,-0.13765416],["2025-01-01",7197,0,25386.31,0.07809743],["2025-02-01",5115,0,29246.09,-0.04491943],["2025-03-01",0,0,27999,-0.04264126],["2025-04-01",0,0,27205,-0.02835816],["2025-05-01",0,3200,24705,0.02733841],["2025-06-01",100,0,24693,-0.00452434],["2025-07-01",0,2600,22304,0.00901979],["2025-08-01",11004.31,0,35209,0.06835501],["2025-09-01",0,17000,18757,0.02051743],["2025-10-01",0,0,18756,-5.331e-05],["2025-11-01",0,500,18373,0.00632227],["2025-12-01",0,0,16735,-0.08915256],["2026-01-01",0,0,18758,0.12088437],["2026-02-01",0,0,16576,-0.1163237]],"utah529":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",3017.34,0,3176,0.10516548],["2019-08-01",705.98,0,3657,-0.06375195],["2019-09-01",784.62,0,4650,0.05146062],["2019-10-01",784.52,0,5664,0.04551134],["2019-11-01",400,0,6018,-0.00784447],["2019-12-01",977,0,7194,0.0305848],["2020-01-01",784.58,0,7960,-0.00244915],["2020-02-01",400,0,7663,-0.08541667],["2020-03-01",1550,0,8012,-0.14233231],["2020-04-01",988.48,0,10202,0.1412516],["2020-05-01",400,0,11443,0.08084984],["2020-06-01",400,0,11824,-0.00163188],["2020-07-01",400,0,12903,0.05647039],["2020-08-01",400,0,14556,0.09562696],["2020-09-01",400,0,14095,-0.05834915],["2020-10-01",400,0,14100,-0.02763204],["2020-11-01",200,0,15861,0.10992958],["2020-12-01",400,0,16879,0.0384783],["2021-01-01",400,0,17103,-0.01030505],["2021-02-01",400,0,18598,0.06328382],["2021-03-01",600,0,19184,-0.00074082],["2021-04-01",400,0,20681,0.05659307],["2021-05-01",400,0,21464,0.01834203],["2021-06-01",200,0,21832,0.00779076],["2021-07-01",0,0,22072,0.01099304],["2021-08-01",0,0,22710,0.0289054],["2021-09-01",0,0,21907,-0.03535887],["2021-10-01",0,0,22963,0.04820377],["2021-11-01",0,0,22491,-0.02055481],["2021-12-01",0,0,23349,0.03814859],["2022-01-01",0,0,22270,-0.04621183],["2022-02-01",0,0,21577,-0.0311181],["2022-03-01",0,0,22050,0.02192149],["2022-04-01",0,0,20191,-0.08430839],["2022-05-01",0,0,20312,0.00599277],["2022-06-01",0,0,18507,-0.08886373],["2022-07-01",0,0,20036,0.08261739],["2022-08-01",0,0,19234,-0.04002795],["2022-09-01",0,0,17660.73,-0.0817963],["2022-10-01",0,0,18706.26,0.05920084],["2022-11-01",0,0,19409.99,0.03762003],["2022-12-01",0,0,18958.7,-0.0232504],["2023-01-01",0,0,20323.02,0.07196274],["2023-02-01",0,0,19838.95,-0.0238188],["2023-03-01",0,0,20290,0.02273558],["2023-04-01",0,0,20541.12,0.01237654],["2023-05-01",0,0,20466,-0.00365705],["2023-06-01",0,0,21523,0.05164663],["2023-07-01",0,0,22546,0.04753055],["2023-08-01",0,0,22040,-0.02244301],["2023-09-01",0,0,21016.72,-0.04642831],["2023-10-01",0,0,20422.56,-0.02827082],["2023-11-01",0,0,22293,0.09158695],["2023-12-01",0,0,23482,0.05333513],["2024-01-01",0,0,23602.91,0.00514905],["2024-02-01",0,0,24637.41,0.04382934],["2024-03-01",260,0,25816.08,0.03709189],["2024-04-01",780,0,25558.83,-0.03958051],["2024-05-01",520,0,27237.04,0.04485912],["2024-06-01",520,0,28403.66,0.02351599],["2024-07-01",520,0,29494.48,0.01991441],["2024-08-01",520,0,30695.31,0.0228816],["2024-09-01",520,0,32160.39,0.03053046],["2024-10-01",520,0,32689.33,0.00027575],["2024-11-01",520,0,34394.83,0.03597949],["2024-12-01",520,0,33871,-0.03012077],["2025-01-01",520,0,35468.81,0.03157862],["2025-02-01",520,0,35563.52,-0.01190328],["2025-03-01",780,0,34666,-0.04665802],["2025-04-01",260,0,35240,0.00902403],["2025-05-01",520,0,37859,0.05912676],["2025-06-01",260,0,39980,0.04898786],["2025-07-01",0,0,40819,0.02098549],["2025-08-01",0,0,41702,0.02163208],["2025-09-01",0,0,43148,0.0346746],["2025-10-01",0,0,44030.33,0.02044892],["2025-11-01",0,0,44160,0.00294502],["2025-12-01",0,0,44378,0.00493659],["2026-01-01",0,0,45434,0.02379557],["2026-02-01",0,0,45724,0.00638289]],"ameritrade":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",2000,0,1997,-0.003],["2019-01-01",0,0,2225.07,0.11420631],["2019-02-01",0,0,2335.47,0.04961642],["2019-03-01",0,0,2656.71,0.13754833],["2019-04-01",0,0,2754.12,0.03666565],["2019-05-01",0,0,2159.85,-0.21577491],["2019-06-01",0,0,2553.81,0.18240156],["2019-07-01",2339.34,4267.59,582.69,-0.02696761],["2019-08-01",0,0,557,-0.04408862],["2019-09-01",0,0,534,-0.04129264],["2019-10-01",0,0,575,0.07677903],["2019-11-01",0,0,605,0.05217391],["2019-12-01",0,0,1,-0.99834711],["2020-01-01",0,0,606,605],["2020-02-01",0,0,577,-0.04785479],["2020-03-01",0,0,500,-0.13344887],["2020-04-01",0,0,614,0.228],["2020-05-01",0,0,675,0.09934853],["2020-06-01",0,0,681,0.00888889],["2020-07-01",0,0,761,0.1174743],["2020-08-01",0,0,880,0.15637319],["2020-09-01",0,0,785,-0.10795455],["2020-10-01",0,0,790,0.00636943],["2020-11-01",0,0,830,0.05063291],["2020-12-01",0,0,819,-0.01325301],["2021-01-01",0,0,775,-0.05372405],["2021-02-01",0,0,643,-0.17032258],["2021-03-01",0,0,392,-0.3903577],["2021-04-01",0,0,361,-0.07908163],["2021-05-01",0,0,351,-0.02770083],["2021-06-01",0,0,445,0.26780627],["2021-07-01",0,0,293,-0.34157303],["2021-08-01",0,41.91,229,-0.0811998],["2021-09-01",0,0,316,0.37991266],["2021-10-01",0,0,322,0.01898734],["2021-11-01",0,0,205,-0.36335404],["2021-12-01",0,0,151,-0.26341463],["2022-01-01",0,0,109,-0.2781457],["2022-02-01",0,0,145,0.33027523],["2022-03-01",0,0,114,-0.2137931],["2022-04-01",0,0,75,-0.34210526],["2022-05-01",0,0,50,-0.33333333],["2022-06-01",0,0,32,-0.36],["2022-07-01",0,0,24,-0.25],["2022-08-01",0,0,26,0.08333333],["2022-09-01",0,0,20.79,-0.20038462],["2022-10-01",0,0,23.7,0.13997114],["2022-11-01",0,0,19.55,-0.17510549],["2022-12-01",0,0,13.22,-0.32378517],["2023-01-01",0,0,18.9,0.42965204],["2023-02-01",0,0,18.45,-0.02380952],["2023-03-01",0,0,15.81,-0.14308943],["2023-04-01",0,0,13.9,-0.12080961],["2023-05-01",0,0,27.1,0.94964029],["2023-06-01",0,0,36,0.32841328],["2023-07-01",0,0,68.81,0.91138889],["2023-08-01",0,0,32,-0.53495132],["2023-09-01",0,0,28.54,-0.108125],["2023-10-01",0,0,24.03,-0.15802383],["2023-11-01",0,0,26.76,0.11360799],["2023-12-01",0,0,41,0.53213752],["2024-01-01",0,0,31.76,-0.22536585],["2024-02-01",0,0,25.74,-0.1895466],["2024-03-01",0,0,26.89,0.04467754],["2024-04-01",0,0,22.13,-0.17701748],["2024-05-01",0,0,24.72,0.1170357],["2024-06-01",0,0,23.59,-0.04571197],["2024-07-01",0,0,28.45,0.2060195],["2024-08-01",0,0,42.5,0.49384886],["2024-09-01",0,0,40.16,-0.05505882],["2024-10-01",0,0,48.68,0.21215139],["2024-11-01",0,0,78.79,0.61852917],["2024-12-01",0,0,61.57,-0.21855565],["2025-01-01",0,0,64.74,0.05148611],["2025-02-01",0,0,66.67,0.02981155],["2025-03-01",0,0,46,-0.3100345],["2025-04-01",0,0,48,0.04347826],["2025-05-01",0,0,47,-0.02083333],["2025-06-01",0,0,65,0.38297872],["2025-07-01",0,0,82,0.26153846],["2025-08-01",0,0,73,-0.1097561],["2025-09-01",0,0,51,-0.30136986],["2025-10-01",0,0,48,-0.05882353],["2025-11-01",0,0,45,-0.0625],["2025-12-01",0,0,44,-0.02222222],["2026-01-01",0,0,39,-0.11363636],["2026-02-01",0,0,27,-0.30769231]],"vanguard":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",0,0,0,0],["2021-11-01",0,0,0,0],["2021-12-01",0,0,0,0],["2022-01-01",0,0,0,0],["2022-02-01",0,0,0,0],["2022-03-01",0,0,0,0],["2022-04-01",0,0,0,0],["2022-05-01",0,0,0,0],["2022-06-01",0,0,0,0],["2022-07-01",0,0,0,0],["2022-08-01",0,0,0,0],["2022-09-01",0,0,0,0],["2022-10-01",0,0,0,0],["2022-11-01",0,0,0,0],["2022-12-01",937.5,0,943.26,0.012288],["2023-01-01",1875,0,2960.75,0.07576193],["2023-02-01",1875,0,4740.61,-0.02440582],["2023-03-01",1875,0,6829,0.03758117],["2023-04-01",1875,0,8831.18,0.01637546],["2023-05-01",1875,0,10753,0.00479287],["2023-06-01",1875,0,13229,0.05140926],["2023-07-01",1875,0,15739,0.04482406],["2023-08-01",1875,0,17411,-0.01217282],["2023-09-01",1875,0,18378,-0.04948633],["2023-10-01",1875,0,19826.75,-0.02206777],["2023-11-01",1875,0,23562.01,0.08958956],["2023-12-01",2447.9,0,27141,0.0456343],["2024-01-01",2447.9,0,30045.27,0.01608922],["2024-02-01",2447.9,0,34037.25,0.04938019],["2024-03-01",2499.98,0,37879.05,0.03802564],["2024-04-01",3196.08,0,39473.89,-0.04056125],["2024-05-01",2593.74,0,44042.62,0.04844133],["2024-06-01",2593.74,0,48257.31,0.03575139],["2024-07-01",2593.74,0,51439.37,0.01187226],["2024-08-01",2593.74,0,55406.08,0.02603466],["2024-09-01",2593.74,0,58546.64,0.00964359],["2024-10-01",2593.74,0,61723.94,0.00975143],["2024-11-01",2593.74,0,66831.4,0.03988714],["2024-12-01",2593.74,0,67376,-0.03007768],["2025-01-01",1350.91,0,70600.69,0.02753475],["2025-02-01",2701.82,0,72348.91,-0.01325335],["2025-03-01",2701.82,0,70958,-0.05553243],["2025-04-01",2756,0,73479,-0.00324873],["2025-05-01",2809.9,0,80968,0.06248468],["2025-06-01",2809.9,0,87983,0.05104953],["2025-07-01",2809.9,0,92784,0.02227481],["2025-08-01",2809.9,0,97520,0.02044932],["2025-09-01",2809.9,0,103948,0.03657419],["2025-10-01",2809.9,0,108944,0.02075025],["2025-11-01",2809.9,0,112369,0.00557414],["2025-12-01",312.44,0,112747,0.00058262],["2026-01-01",1570.83,0,115965,0.01450837],["2026-02-01",2175,0,117257,-0.00754362]],"ibkr":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",0,0,0,0],["2021-11-01",0,0,0,0],["2021-12-01",0,0,0,0],["2022-01-01",0,0,0,0],["2022-02-01",0,0,0,0],["2022-03-01",0,0,0,0],["2022-04-01",0,0,0,0],["2022-05-01",0,0,0,0],["2022-06-01",0,0,0,0],["2022-07-01",0,0,0,0],["2022-08-01",0,0,0,0],["2022-09-01",0,0,0,0],["2022-10-01",0,0,0,0],["2022-11-01",0,0,0,0],["2022-12-01",0,0,0,0],["2023-01-01",0,0,0,0],["2023-02-01",50,0,49.86,-0.0056],["2023-03-01",300,0,372,0.11077754],["2023-04-01",164.3,0,557,0.04557965],["2023-05-01",2995.56,0,3518,-0.01681932],["2023-06-01",2995.56,0,3756,-0.5497769],["2023-07-01",193.08,0,3915.41,-0.00873969],["2023-08-01",0,0,3908,-0.00189252],["2023-09-01",1401.56,0,5202.79,-0.02316665],["2023-10-01",2501.06,0,7700.45,-0.00052686],["2023-11-01",0,0,8347,0.08396263],["2023-12-01",0,0,8953,0.07260093],["2024-01-01",0,0,9089.39,0.015234],["2024-02-01",0,0,10053.92,0.10611603],["2024-03-01",0,0,10399.21,0.03434382],["2024-04-01",0,0,9862.6,-0.05160104],["2024-05-01",0,0,10630.45,0.07785472],["2024-06-01",0,0,10928.91,0.02807595],["2024-07-01",270,0,11674.66,0.04300017],["2024-08-01",0,0,11359.66,-0.02698151],["2024-09-01",0,0,11272.92,-0.00763579],["2024-10-01",0,0,11734.2,0.0409193],["2024-11-01",0,0,12957.05,0.10421247],["2024-12-01",0,0,11391,-0.1208647],["2025-01-01",0,0,12480.46,0.09564217],["2025-02-01",0,0,12512.25,0.00254718],["2025-03-01",0,0,13050,0.04297788],["2025-04-01",0,0,13479,0.03287356],["2025-05-01",250,0,13072,-0.04829462],["2025-06-01",108,0,13558,0.02879781],["2025-07-01",0,0,13417,-0.01039976],["2025-08-01",0,0,13570,0.01140344],["2025-09-01",0,0,12848,-0.0532056],["2025-10-01",0,0,11955,-0.06950498],["2025-11-01",0,0,11353,-0.0503555],["2025-12-01",0,0,11222,-0.0115388],["2026-01-01",0,0,11648,0.03796115],["2026-02-01",0,0,10778,-0.07469093]],"etradeespp":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",0,0,0,0],["2021-11-01",0,0,0,0],["2021-12-01",0,0,0,0],["2022-01-01",0,0,0,0],["2022-02-01",0,0,0,0],["2022-03-01",0,0,0,0],["2022-04-01",0,0,0,0],["2022-05-01",0,0,0,0],["2022-06-01",0,0,0,0],["2022-07-01",0,0,0,0],["2022-08-01",0,0,0,0],["2022-09-01",0,0,0,0],["2022-10-01",0,0,0,0],["2022-11-01",0,0,0,0],["2022-12-01",0,0,0,0],["2023-01-01",0,0,0,0],["2023-02-01",0,0,0,0],["2023-03-01",0,0,0,0],["2023-04-01",0,0,0,0],["2023-05-01",0,0,0,0],["2023-06-01",0,0,0,0],["2023-07-01",0,0,0,0],["2023-08-01",0,0,0,0],["2023-09-01",0,0,0,0],["2023-10-01",0,0,0,0],["2023-11-01",0,0,0,0],["2023-12-01",0,0,0,0],["2024-01-01",1562.5,0,1562.5,0],["2024-02-01",1562.5,0,3125,0],["2024-03-01",1562.5,0,4687.5,0],["2024-04-01",1621.1,0,6308.6,0],["2024-05-01",1621.1,0,7929.7,0],["2024-06-01",1621.1,0,10394.56,0.09653728],["2024-07-01",1621.1,0,12756.95,0.06615642],["2024-08-01",1621.1,0,13288,-0.08034273],["2024-09-01",1621.1,0,15279.84,0.02629632],["2024-10-01",1621.1,0,17805.74,0.05623232],["2024-11-01",1621.1,0,20510.72,0.05822213],["2024-12-01",1621,0,20340.77,-0.08399848],["2025-01-01",0,11647.46,11558.72,0.19738252],["2025-02-01",0,0,11410.88,-0.01279034],["2025-03-01",0,0,10418,-0.08701169],["2025-04-01",0,0,11221,0.07707813],["2025-05-01",0,0,12018,0.07102754],["2025-06-01",0,0,11021.17,-0.08294475],["2025-07-01",9921.1,15950,10625,0.70350031],["2025-08-01",0,0,13570,0.27717647],["2025-09-01",0,0,11216,-0.17347089],["2025-10-01",0,0,11194.47,-0.00191958],["2025-11-01",0,0,11611,0.03720855],["2025-12-01",0,0,11064,-0.0471105],["2026-01-01",278.88,0,24208,1.14831873],["2026-02-01",0,0,23592,-0.02544613]],"venmo":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",0,0,0,0],["2021-11-01",0,0,0,0],["2021-12-01",0,0,0,0],["2022-01-01",0,0,0,0],["2022-02-01",0,0,0,0],["2022-03-01",0,0,0,0],["2022-04-01",0,0,0,0],["2022-05-01",0,0,0,0],["2022-06-01",0,0,0,0],["2022-07-01",0,0,0,0],["2022-08-01",0,0,0,0],["2022-09-01",0,0,0,0],["2022-10-01",0,0,0,0],["2022-11-01",0,0,0,0],["2022-12-01",0,0,0,0],["2023-01-01",0,0,0,0],["2023-02-01",0,0,0,0],["2023-03-01",0,0,0,0],["2023-04-01",0,0,0,0],["2023-05-01",0,0,0,0],["2023-06-01",0,0,0,0],["2023-07-01",0,0,0,0],["2023-08-01",0,0,0,0],["2023-09-01",0,0,0,0],["2023-10-01",0,0,0,0],["2023-11-01",0,0,0,0],["2023-12-01",0,0,0,0],["2024-01-01",0,0,0,0],["2024-02-01",13158.93,0,16307.6,0.47856019],["2024-03-01",417.37,0,19447.62,0.16484639],["2024-04-01",0,0,16683,-0.14215724],["2024-05-01",0,0,19753.69,0.18406102],["2024-06-01",0,0,17659.3,-0.10602525],["2024-07-01",0,0,17857.32,0.01121336],["2024-08-01",0,0,15284.73,-0.14406361],["2024-09-01",0,0,16234.26,0.06212279],["2024-10-01",0,0,16976.37,0.04571259],["2024-11-01",0,0,24105.85,0.41996493],["2024-12-01",0,0,23349,-0.03139694],["2025-01-01",0,0,24551.76,0.05151227],["2025-02-01",0,0,19029.14,-0.22493785],["2025-03-01",0,0,18202,-0.04346702],["2025-04-01",0,0,19955,0.0963081],["2025-05-01",0,0,23015,0.15334503],["2025-06-01",0,0,23482,0.02029111],["2025-07-01",0,17600,8963,0.20984879],["2025-08-01",0,0,10861,0.21175946],["2025-09-01",0,0,10369,-0.0452997],["2025-10-01",0,0,9283.83,-0.10465522],["2025-11-01",0,0,6654,-0.28326994],["2025-12-01",0,0,7198,0.08175534],["2026-01-01",0,0,5817,-0.19185885],["2026-02-01",0,0,5926,0.01873818]],"bitkey":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",0,0,0,0],["2021-11-01",0,0,0,0],["2021-12-01",0,0,0,0],["2022-01-01",0,0,0,0],["2022-02-01",0,0,0,0],["2022-03-01",0,0,0,0],["2022-04-01",0,0,0,0],["2022-05-01",0,0,0,0],["2022-06-01",0,0,0,0],["2022-07-01",0,0,0,0],["2022-08-01",0,0,0,0],["2022-09-01",0,0,0,0],["2022-10-01",0,0,0,0],["2022-11-01",0,0,0,0],["2022-12-01",0,0,0,0],["2023-01-01",0,0,0,0],["2023-02-01",0,0,0,0],["2023-03-01",0,0,0,0],["2023-04-01",0,0,0,0],["2023-05-01",0,0,0,0],["2023-06-01",0,0,0,0],["2023-07-01",0,0,0,0],["2023-08-01",0,0,0,0],["2023-09-01",0,0,0,0],["2023-10-01",0,0,0,0],["2023-11-01",0,0,0,0],["2023-12-01",0,0,0,0],["2024-01-01",0,0,0,0],["2024-02-01",0,0,0,0],["2024-03-01",377.7,0,391.68,0.07402701],["2024-04-01",0,0,361.63,-0.07672079],["2024-05-01",0,0,376.18,0.04023449],["2024-06-01",0,0,340,-0.09617736],["2024-07-01",0,0,358.79,0.05526471],["2024-08-01",0,0,330.29,-0.07943365],["2024-09-01",0,0,356.65,0.07980865],["2024-10-01",0,0,392.71,0.10110753],["2024-11-01",0,0,545.12,0.38809809],["2024-12-01",4614,0,4646,-0.17990828],["2025-01-01",0,0,5017.93,0.08005381],["2025-02-01",0,0,4146.78,-0.17360744],["2025-03-01",0,0,4123,-0.00573457],["2025-04-01",0,0,4682,0.13558089],["2025-05-01",0,0,5115.25,0.09253524],["2025-06-01",0,0,5257.41,0.02779141],["2025-07-01",21649.16,0,28853,0.12103166],["2025-08-01",2955.51,0,29776,-0.06701152],["2025-09-01",0,0,31971,0.07371709],["2025-10-01",0,0,30111.87,-0.05815051],["2025-11-01",2446,0,25705,-0.21869789],["2025-12-01",2014.31,0,28538,0.03064859],["2026-01-01",0,0,25357,-0.11146541],["2026-02-01",2281,0,23826,-0.14386263]],"Cashapp":[["2015-03-01",0,0,0,0],["2015-04-01",0,0,0,0],["2015-05-01",0,0,0,0],["2015-06-01",0,0,0,0],["2015-07-01",0,0,0,0],["2015-08-01",0,0,0,0],["2015-09-01",0,0,0,0],["2015-10-01",0,0,0,0],["2015-11-01",0,0,0,0],["2015-12-01",0,0,0,0],["2016-01-01",0,0,0,0],["2016-02-01",0,0,0,0],["2016-03-01",0,0,0,0],["2016-04-01",0,0,0,0],["2016-05-01",0,0,0,0],["2016-06-01",0,0,0,0],["2016-07-01",0,0,0,0],["2016-08-01",0,0,0,0],["2016-09-01",0,0,0,0],["2016-10-01",0,0,0,0],["2016-11-01",0,0,0,0],["2016-12-01",0,0,0,0],["2017-01-01",0,0,0,0],["2017-02-01",0,0,0,0],["2017-03-01",0,0,0,0],["2017-04-01",0,0,0,0],["2017-05-01",0,0,0,0],["2017-06-01",0,0,0,0],["2017-07-01",0,0,0,0],["2017-08-01",0,0,0,0],["2017-09-01",0,0,0,0],["2017-10-01",0,0,0,0],["2017-11-01",0,0,0,0],["2017-12-01",0,0,0,0],["2018-01-01",0,0,0,0],["2018-02-01",0,0,0,0],["2018-03-01",0,0,0,0],["2018-04-01",0,0,0,0],["2018-05-01",0,0,0,0],["2018-06-01",0,0,0,0],["2018-07-01",0,0,0,0],["2018-08-01",0,0,0,0],["2018-09-01",0,0,0,0],["2018-10-01",0,0,0,0],["2018-11-01",0,0,0,0],["2018-12-01",0,0,0,0],["2019-01-01",0,0,0,0],["2019-02-01",0,0,0,0],["2019-03-01",0,0,0,0],["2019-04-01",0,0,0,0],["2019-05-01",0,0,0,0],["2019-06-01",0,0,0,0],["2019-07-01",0,0,0,0],["2019-08-01",0,0,0,0],["2019-09-01",0,0,0,0],["2019-10-01",0,0,0,0],["2019-11-01",0,0,0,0],["2019-12-01",0,0,0,0],["2020-01-01",0,0,0,0],["2020-02-01",0,0,0,0],["2020-03-01",0,0,0,0],["2020-04-01",0,0,0,0],["2020-05-01",0,0,0,0],["2020-06-01",0,0,0,0],["2020-07-01",0,0,0,0],["2020-08-01",0,0,0,0],["2020-09-01",0,0,0,0],["2020-10-01",0,0,0,0],["2020-11-01",0,0,0,0],["2020-12-01",0,0,0,0],["2021-01-01",0,0,0,0],["2021-02-01",0,0,0,0],["2021-03-01",0,0,0,0],["2021-04-01",0,0,0,0],["2021-05-01",0,0,0,0],["2021-06-01",0,0,0,0],["2021-07-01",0,0,0,0],["2021-08-01",0,0,0,0],["2021-09-01",0,0,0,0],["2021-10-01",0,0,0,0],["2021-11-01",0,0,0,0],["2021-12-01",0,0,0,0],["2022-01-01",0,0,0,0],["2022-02-01",0,0,0,0],["2022-03-01",0,0,0,0],["2022-04-01",0,0,0,0],["2022-05-01",0,0,0,0],["2022-06-01",0,0,0,0],["2022-07-01",0,0,0,0],["2022-08-01",0,0,0,0],["2022-09-01",0,0,0,0],["2022-10-01",0,0,0,0],["2022-11-01",0,0,0,0],["2022-12-01",0,0,0,0],["2023-01-01",0,0,0,0],["2023-02-01",0,0,0,0],["2023-03-01",0,0,0,0],["2023-04-01",0,0,0,0],["2023-05-01",0,0,0,0],["2023-06-01",0,0,0,0],["2023-07-01",0,0,0,0],["2023-08-01",0,0,0,0],["2023-09-01",0,0,0,0],["2023-10-01",0,0,0,0],["2023-11-01",0,0,0,0],["2023-12-01",0,0,0,0],["2024-01-01",0,0,0,0],["2024-02-01",0,0,0,0],["2024-03-01",0,0,0,0],["2024-04-01",0,0,0,0],["2024-05-01",0,0,0,0],["2024-06-01",0,0,0,0],["2024-07-01",0,0,0,0],["2024-08-01",0,0,0,0],["2024-09-01",0,0,0,0],["2024-10-01",0,0,0,0],["2024-11-01",300,0,431,0.87333333],["2024-12-01",125,0,737,0.36676798],["2025-01-01",682.77,0,1331.26,-0.08207644],["2025-02-01",335,0,1403.76,-0.17514479],["2025-03-01",750,0,2128,-0.014482],["2025-04-01",353,0,2834,0.15317856],["2025-05-01",204.4,0,3296,0.08773244],["2025-06-01",465.42,0,3869,0.03048706],["2025-07-01",1376.04,4000,1341,0.03752806],["2025-08-01",775.4,2000.28,35,-0.11134292],["2025-09-01",814.16,0,870,0.04714079],["2025-10-01",814.16,0,1595.47,-0.06944749],["2025-11-01",1123,2355,0,-0.37108845],["2025-12-01",3014.85,2004.21,914,-0.19124515],["2026-01-01",910.88,0,1573,-0.1839292],["2026-02-01",1709,2226,830,-0.17192849]]},"sp500":[["2016-03-31",2059.74],["2016-04-29",2065.3],["2016-05-31",2096.96],["2016-06-30",2098.86],["2016-07-29",2173.6],["2016-08-31",2170.95],["2016-09-30",2168.27],["2016-10-31",2126.15],["2016-11-30",2198.81],["2016-12-30",2238.83],["2017-01-31",2278.87],["2017-02-28",2363.64],["2017-03-31",2362.72],["2017-04-28",2384.2],["2017-05-31",2411.8],["2017-06-30",2423.41],["2017-07-31",2470.3],["2017-08-31",2471.65],["2017-09-29",2519.36],["2017-10-31",2575.26],["2017-11-30",2647.58],["2017-12-29",2673.61],["2018-01-31",2823.81],["2018-02-28",2713.83],["2018-03-29",2640.87],["2018-04-30",2648.05],["2018-05-31",2705.27],["2018-06-29",2718.37],["2018-07-31",2816.29],["2018-08-31",2901.52],["2018-09-28",2913.98],["2018-10-31",2711.74],["2018-11-30",2760.17],["2018-12-31",2506.85],["2019-01-31",2704.1],["2019-02-28",2784.49],["2019-03-29",2834.4],["2019-04-30",2945.83],["2019-05-31",2752.06],["2019-06-28",2941.76],["2019-07-31",2980.38],["2019-08-30",2926.46],["2019-09-30",2976.74],["2019-10-31",3037.56],["2019-11-29",3140.98],["2019-12-31",3230.78],["2020-01-31",3225.52],["2020-02-28",2954.22],["2020-03-31",2584.59],["2020-04-30",2912.43],["2020-05-29",3044.31],["2020-06-30",3100.29],["2020-07-31",3271.12],["2020-08-31",3500.31],["2020-09-30",3363.0],["2020-10-30",3269.96],["2020-11-30",3621.63],["2020-12-31",3756.07],["2021-01-29",3714.24],["2021-02-26",3811.15],["2021-03-31",3972.89],["2021-04-30",4181.17],["2021-05-28",4204.11],["2021-06-30",4297.5],["2021-07-30",4395.26],["2021-08-31",4522.68],["2021-09-30",4307.54],["2021-10-29",4605.38],["2021-11-30",4567.0],["2021-12-31",4766.18],["2022-01-31",4515.55],["2022-02-28",4373.94],["2022-03-31",4530.41],["2022-04-29",4131.93],["2022-05-31",4132.15],["2022-06-30",3785.38],["2022-07-29",4130.29],["2022-08-31",3955.0],["2022-09-30",3585.62],["2022-10-31",3871.98],["2022-11-30",4080.11],["2022-12-30",3839.5],["2023-01-31",4076.6],["2023-02-28",3970.15],["2023-03-31",4109.31],["2023-04-28",4169.48],["2023-05-31",4179.83],["2023-06-30",4450.38],["2023-07-31",4588.96],["2023-08-31",4507.66],["2023-09-29",4288.05],["2023-10-31",4193.8],["2023-11-30",4567.8],["2023-12-29",4769.83],["2024-01-31",4845.65],["2024-02-29",5096.27],["2024-03-28",5254.35],["2024-04-30",5035.69],["2024-05-31",5277.51],["2024-06-28",5460.48],["2024-07-31",5522.3],["2024-08-30",5648.4],["2024-09-30",5762.48],["2024-10-31",5705.45],["2024-11-29",6032.38],["2024-12-31",5881.63],["2025-01-31",6040.53],["2025-02-28",5954.5],["2025-03-31",5611.85],["2025-04-30",5569.06],["2025-05-30",5911.69],["2025-06-30",6204.95],["2025-07-31",6339.39],["2025-08-29",6460.26],["2025-09-30",6688.46],["2025-10-31",6840.2],["2025-11-28",6849.09],["2025-12-31",6845.5],["2026-01-30",6939.03],["2026-02-27",6878.88],["2026-03-03",6816.63]],"balances":{"ravifidelity":344305,"zufidelity":80532,"ravirh":1412,"zurh":16576,"empower":44003,"alight":153533,"m1":16576,"utah529":45724,"ameritrade":27,"vanguard":117257,"ibkr":10778,"etradeespp":23592,"venmo":5926,"bitkey":23826,"Cashapp":830},"since_dates":{"ravifidelity":"2017-09-01","zufidelity":"2017-04-01","ravirh":"2015-03-01","zurh":"2016-04-01","empower":"2021-10-01","alight":"2022-12-01","m1":"2019-09-01","utah529":"2019-07-01","ameritrade":"2018-12-01","vanguard":"2022-12-01","ibkr":"2023-02-01","etradeespp":"2024-01-01","venmo":"2024-02-01","bitkey":"2024-03-01","Cashapp":"2024-11-01"},"returns_trailing":{"1_month":-0.0559,"3_months":-0.0806,"6_months":-0.1071,"ytd":-0.0794,"1_year":0.019,"3_years":0.1898,"5_years":0.0876,"10_years":0.1392,"twrr_life":0.092,"mwrr_life":0.1317},"acctReturnsLife":{"names":["Portfolio","GSPC","ravifidelity","zufidelity","ravirh","zurh","empower","alight","m1","utah529","ameritrade","vanguard","ibkr","etradeespp","Venmo","Bitkey","Cashapp"],"mwrr":[0.1317,0.1592,0.1044,0.2601,-0.0358,0.0594,0.1567,0.2101,0.1714,0.1480,-0.0020,0.1900,-0.0160,0.8779,0.4228,-0.5112,-0.2384],"twrr":[0.0920,0.1318,0.1134,0.1883,-0.2868,-0.0208,0.1095,0.2186,0.0489,0.1491,-0.3104,0.2180,-0.1274,1.0607,0.2767,-0.0520,-0.1839],"inflation":[0.0301,0.0301,0.0336,0.0329,0.0301,0.0319,0.0393,0.0276,0.0372,0.0365,0.0358,0.0276,0.0275,0.0274,0.0258,0.0238,0.0227],"since":["Mar 2015","Mar 2015","Sep 2017","Apr 2017","Mar 2015","Apr 2016","Oct 2021","Dec 2022","Sep 2019","Jul 2019","Dec 2018","Dec 2022","Feb 2023","Jan 2024","Feb 2024","Mar 2024","Nov 2024"]},"acctReturnsTrailing":{"periods":["1 month","3 months","6 months","YTD","1 year","3 years","5 years","10 years"],"data":{"Portfolio":[-0.0559,-0.0806,-0.1071,-0.0794,0.0190,0.1898,0.0876,0.1392],"GSPC":[-0.0077,0.0070,0.0702,0.0065,0.1699,0.2109,0.1592,0.1631],"ravifidelity":[-0.0825,-0.1434,-0.1749,-0.1441,-0.0400,0.2167,0.0380,null],"zufidelity":[-0.1030,-0.2105,-0.3231,-0.2044,-0.2623,0.0990,0.2821,null],"ravirh":[-0.0302,-0.1489,-0.1214,-0.0843,0.1423,1.0160,0.0763,0.5433],"zurh":[-0.1181,-0.2135,-0.2343,-0.2162,-0.1183,0.1251,-0.1393,null],"empower":[-0.0134,0.0073,0.0652,0.0027,0.1725,0.2105,null,null],"alight":[-0.0062,0.0163,0.0798,0.0157,0.1911,0.2115,null,null],"m1":[-0.1163,-0.0978,-0.0587,-0.0095,-0.0205,0.0833,0.1633,null],"utah529":[0.0064,0.0354,0.0964,0.0303,0.2247,0.2112,0.1245,null],"ameritrade":[-0.3077,-0.4000,-0.6301,-0.3864,-0.5950,0.1353,-0.4599,null],"vanguard":[-0.0075,0.0073,0.0694,0.0067,0.1788,0.1904,null,null],"ibkr":[-0.0747,-0.0506,-0.2057,-0.0396,-0.1636,-0.0160,null,null],"etradeespp":[-0.0254,0.9977,0.7150,1.0878,2.1154,null,null,null],"Venmo":[0.0187,-0.1094,-0.4544,-0.1767,0.5064,null,null,null],"Bitkey":[-0.1439,-0.2219,-0.3901,-0.2399,-0.5109,null,null,null],"Cashapp":[-0.1719,-0.4469,-0.6959,-0.3234,-0.2500,null,null,null]}},"annualReturns":{"years":[2016,2017,2018,2019,2020,2021,2022,2023,2024,2025],"names":["Inflation","Portfolio","GSPC","ravifidelity","zufidelity","ravirh","zurh","empower","alight","m1","utah529","ameritrade","vanguard","ibkr","etradeespp","Venmo","Bitkey","Cashapp"],"data":{"2016":[0.021,0.319,0.127,null,null,0.322,null,null,null,null,null,null,null,null,null,null,null,null],"2017":[0.021,0.096,0.267,null,null,0.283,null,null,null,null,null,null,null,null,null,null,null,null],"2018":[0.019,-0.335,-0.165,-0.363,0.002,-0.308,0.471,null,null,null,null,null,null,null,null,null,null,null],"2019":[0.023,0.313,0.307,0.361,0.040,-0.518,0.224,null,null,null,null,-0.062,null,null,null,null,null,null],"2020":[0.014,0.819,0.229,0.790,0.312,0.243,1.625,null,null,1.147,0.266,818.00,null,null,null,null,null,null],"2021":[0.070,0.403,0.286,0.052,7.948,-0.795,-0.158,null,null,-0.344,0.218,-0.787,null,null,null,null,null,null],"2022":[0.065,-0.491,-0.159,-0.541,-0.586,-0.640,-0.676,-0.084,null,0.525,-0.188,-0.912,null,null,null,null,null,null],"2023":[0.034,0.452,0.261,0.541,0.606,0.342,0.792,0.256,0.276,0.158,0.239,2.101,0.265,null,null,null,null,null],"2024":[0.029,0.302,0.245,0.324,0.357,2.999,0.318,0.243,0.247,0.116,0.203,0.502,0.210,0.239,0.113,null,null,null],"2025":[0.027,0.120,0.180,0.157,-0.102,0.169,-0.022,0.177,0.194,0.000,0.212,-0.285,0.194,-0.045,1.172,0.094,-0.301,-0.113]}}};
+
+// ===================== DATA PROCESSING =====================
+let STATE = { archived: new Set(), addedData: {} };
+
+function parseData() {
+  // Portfolio: [date, contribution, withdrawal, balance, end_date, return]
+  const portfolio = RAW.portfolio.map(r => ({
+    date: r[0], contribution: r[1], withdrawal: r[2],
+    balance: r[3], endDate: r[4], ret: r[5]
+  }));
+  // SP500: [date, value]
+  const sp500 = RAW.sp500.map(r => ({ date: r[0], value: r[1] }));
+  return { portfolio, sp500 };
+}
+
+function getPortfolioFromMarch2017(portfolio) {
+  return portfolio.filter(r => r.date >= '2017-03-01');
+}
+
+function getSP500FromMarch2017(sp500) {
+  return sp500.filter(r => r.date >= '2017-03-31');
+}
+
+// ===================== PERFORMANCE CALCULATIONS =====================
+function calcReturns(data) {
+  // data is portfolio array from Mar 2017 onward
+  if (!data.length) return {};
+  const n = data.length;
+  const last = data[n - 1];
+  const lastDate = new Date(last.date);
+
+  function getReturnForMonths(months) {
+    const idx = n - months;
+    if (idx < 0) return null;
+    // compound TWRR returns from idx to n-1
+    let cum = 1;
+    for (let i = idx; i < n; i++) cum *= (1 + data[i].ret);
+    return cum - 1;
+  }
+
+  function getYTDReturn() {
+    const year = lastDate.getFullYear();
+    let cum = 1;
+    for (let i = 0; i < n; i++) {
+      const d = new Date(data[i].date);
+      if (d.getFullYear() === year) cum *= (1 + data[i].ret);
+    }
+    return cum - 1;
+  }
+
+  return {
+    '1m': getReturnForMonths(1),
+    '3m': getReturnForMonths(3),
+    '6m': getReturnForMonths(6),
+    'ytd': getYTDReturn(),
+    '1y': getReturnForMonths(12),
+    '3y': getReturnForMonths(36),
+    '5y': getReturnForMonths(60),
+    'inception': getReturnForMonths(n)
+  };
+}
+
+function calcSP500Returns(sp500Data, portfolioData) {
+  // Build monthly returns for SP500 aligned to portfolio dates
+  const sp500Map = {};
+  sp500Data.forEach(r => { sp500Map[r.date.substring(0,7)] = r.value; });
+
+  const portDates = portfolioData.map(r => r.endDate.substring(0,7));
+  const sp500Returns = [];
+  for (let i = 0; i < portDates.length; i++) {
+    const ym = portDates[i];
+    const prevYM = i > 0 ? portDates[i-1] : null;
+    const val = sp500Map[ym];
+    const prevVal = prevYM ? sp500Map[prevYM] : null;
+    if (val && prevVal && prevVal > 0) {
+      sp500Returns.push(val / prevVal - 1);
+    } else {
+      sp500Returns.push(0);
+    }
+  }
+
+  function getReturnForMonths(months) {
+    const idx = sp500Returns.length - months;
+    if (idx < 0) return null;
+    let cum = 1;
+    for (let i = idx; i < sp500Returns.length; i++) cum *= (1 + sp500Returns[i]);
+    return cum - 1;
+  }
+
+  const n = sp500Returns.length;
+  const lastDate = new Date(portfolioData[portfolioData.length-1].date);
+  function getYTDReturn() {
+    const year = lastDate.getFullYear();
+    let cum = 1;
+    for (let i = 0; i < n; i++) {
+      const d = new Date(portfolioData[i].date);
+      if (d.getFullYear() === year) cum *= (1 + sp500Returns[i]);
+    }
+    return cum - 1;
+  }
+
+  return {
+    '1m': getReturnForMonths(1),
+    '3m': getReturnForMonths(3),
+    '6m': getReturnForMonths(6),
+    'ytd': getYTDReturn(),
+    '1y': getReturnForMonths(12),
+    '3y': getReturnForMonths(36),
+    '5y': getReturnForMonths(60),
+    'inception': getReturnForMonths(n),
+    monthlyReturns: sp500Returns
+  };
+}
+
+function calcCAGR(totalReturn, years) {
+  if (totalReturn <= -1) return -1;
+  return Math.pow(1 + totalReturn, 1 / years) - 1;
+}
+
+function calcSharpe(monthlyReturns, riskFreeAnnual = 0.04) {
+  const rf = riskFreeAnnual / 12;
+  const excess = monthlyReturns.map(r => r - rf);
+  const mean = excess.reduce((a,b) => a+b, 0) / excess.length;
+  const variance = excess.reduce((a,b) => a + (b - mean)**2, 0) / excess.length;
+  const std = Math.sqrt(variance);
+  if (std === 0) return 0;
+  return (mean / std) * Math.sqrt(12);
+}
+
+function calcDrawdowns(portfolioData) {
+  // Compute per-month drawdown from cumulative TWRR growth
+  const n = portfolioData.length;
+  const cumGrowth = new Array(n);
+  cumGrowth[0] = 1 + portfolioData[0].ret;
+  for (let i = 1; i < n; i++) {
+    cumGrowth[i] = cumGrowth[i - 1] * (1 + portfolioData[i].ret);
+  }
+
+  // drawdown[i] = pct decline from running peak at month i
+  const ddSeries = new Array(n);
+  let peak = -Infinity;
+  for (let i = 0; i < n; i++) {
+    if (cumGrowth[i] > peak) peak = cumGrowth[i];
+    ddSeries[i] = (cumGrowth[i] - peak) / peak; // ≤ 0
+  }
+
+  // Identify distinct drawdown episodes (start = peak index, trough, recovery)
+  const periods = [];
+  let inDD = false, startIdx = 0, troughIdx = 0, troughVal = 0;
+  for (let i = 0; i < n; i++) {
+    if (ddSeries[i] < 0 && !inDD) {
+      inDD = true;
+      startIdx = Math.max(i - 1, 0); // peak was previous month
+      troughIdx = i;
+      troughVal = ddSeries[i];
+    } else if (inDD && ddSeries[i] < troughVal) {
+      troughIdx = i;
+      troughVal = ddSeries[i];
+    } else if (inDD && ddSeries[i] >= 0) {
+      inDD = false;
+      // Duration: from peak month to recovery month using actual dates
+      const peakDate = new Date(portfolioData[startIdx].endDate);
+      const recovDate = new Date(portfolioData[i].endDate);
+      const durMonths = (recovDate.getFullYear() - peakDate.getFullYear()) * 12 + (recovDate.getMonth() - peakDate.getMonth());
+      periods.push({ startIdx, troughIdx, endIdx: i, depth: troughVal, durMonths, recovered: true });
+    }
+  }
+  if (inDD) {
+    const peakDate = new Date(portfolioData[startIdx].endDate);
+    const lastDate = new Date(portfolioData[n - 1].endDate);
+    const durMonths = (lastDate.getFullYear() - peakDate.getFullYear()) * 12 + (lastDate.getMonth() - peakDate.getMonth());
+    periods.push({ startIdx, troughIdx, endIdx: n - 1, depth: troughVal, durMonths, recovered: false });
+  }
+  periods.sort((a, b) => a.depth - b.depth);
+
+  return { series: ddSeries, top5: periods.slice(0, 5) };
+}
+
+// ===================== CHART CREATION =====================
+const chartInstances = {};
+
+function destroyChart(id) {
+  if (chartInstances[id]) { chartInstances[id].destroy(); delete chartInstances[id]; }
+}
+
+const chartColors = {
+  blue: 'rgba(59,130,246,1)', blueArea: 'rgba(59,130,246,0.15)',
+  green: 'rgba(34,197,94,1)', greenArea: 'rgba(34,197,94,0.1)',
+  red: 'rgba(239,68,68,1)', redArea: 'rgba(239,68,68,0.15)',
+  orange: 'rgba(249,115,22,1)', orangeArea: 'rgba(249,115,22,0.1)',
+  purple: 'rgba(168,85,247,1)',
+};
+
+const defaultTooltip = {
+  backgroundColor: 'rgba(15,23,42,0.95)', titleColor: '#fff', bodyColor: '#cbd5e1',
+  borderColor: '#334155', borderWidth: 1, padding: 12, cornerRadius: 8,
+  titleFont: { size: 13, weight: '600' }, bodyFont: { size: 12 },
+  displayColors: true, boxPadding: 4,
+  intersect: false, mode: 'index'
+};
+
+const defaultOptions = {
+  responsive: true, maintainAspectRatio: false,
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { labels: { color: '#94a3b8', font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } },
+    tooltip: defaultTooltip
+  },
+  scales: {
+    x: {
+      type: 'time', time: { unit: 'year', tooltipFormat: 'MMM yyyy' },
+      grid: { color: 'rgba(51,65,85,0.3)' }, ticks: { color: '#64748b', maxTicksLimit: 10 }
+    },
+    y: {
+      grid: { color: 'rgba(51,65,85,0.3)' }, ticks: { color: '#64748b' }
+    }
+  }
+};
+
+// Crosshair vertical line plugin
+const crosshairPlugin = {
+  id: 'crosshair',
+  afterDraw(chart) {
+    if (chart.tooltip && chart.tooltip.opacity > 0) {
+      const ctx = chart.ctx;
+      const x = chart.tooltip.caretX;
+      const topY = chart.scales.y.top;
+      const bottomY = chart.scales.y.bottom;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x, topY);
+      ctx.lineTo(x, bottomY);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(148,163,184,0.3)';
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+};
+
+// Peak line plugin — draws a horizontal dashed line at the all-time peak
+// and shows the distance from peak annotation on the right side.
+// Attach peakInfo = { value, label, date, color } to chart.config for each chart.
+const peakLinePlugin = {
+  id: 'peakLine',
+  afterDraw(chart) {
+    const info = chart.config._peakInfo;
+    if (!info) return;
+    const yScale = chart.scales.y;
+    const xScale = chart.scales.x;
+    const yPixel = yScale.getPixelForValue(info.value);
+    if (yPixel < yScale.top || yPixel > yScale.bottom) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    // Draw dashed peak line
+    ctx.beginPath();
+    ctx.moveTo(xScale.left, yPixel);
+    ctx.lineTo(xScale.right, yPixel);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = info.color || 'rgba(250,204,21,0.6)';
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Draw peak label (right aligned)
+    ctx.font = '600 11px Inter, system-ui, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = info.color || 'rgba(250,204,21,0.9)';
+    ctx.fillText(info.peakLabel, xScale.right - 6, yPixel - 5);
+    // Draw "from peak" badge near the last data point
+    if (info.fromPeakLabel) {
+      ctx.font = '600 11px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(239,68,68,0.9)';
+      ctx.fillText(info.fromPeakLabel, xScale.right - 6, yPixel + 5);
+    }
+    ctx.restore();
+  }
+};
+
+function buildGrowth10kChart(portfolioData, sp500Returns) {
+  destroyChart('chartGrowth10k');
+  const labels = portfolioData.map(r => r.endDate);
+  let portVal = 10000, spVal = 10000;
+  const portSeries = [], spSeries = [];
+  for (let i = 0; i < portfolioData.length; i++) {
+    portVal *= (1 + portfolioData[i].ret);
+    spVal *= (1 + sp500Returns[i]);
+    portSeries.push(Math.round(portVal * 100) / 100);
+    spSeries.push(Math.round(spVal * 100) / 100);
+  }
+
+  // Compute portfolio peak
+  const portPeak = Math.max(...portSeries);
+  const portCurrent = portSeries[portSeries.length - 1];
+  const portFromPeak = ((portCurrent - portPeak) / portPeak * 100).toFixed(1);
+  const portPeakIdx = portSeries.indexOf(portPeak);
+  const portPeakDate = new Date(labels[portPeakIdx]).toLocaleDateString('en-US',{year:'numeric',month:'short'});
+
+  const ctx = document.getElementById('chartGrowth10k').getContext('2d');
+  const chartConfig = {
+    type: 'line',
+    data: {
+      labels: labels.map(d => new Date(d)),
+      datasets: [
+        { label: 'Portfolio', data: portSeries, borderColor: chartColors.blue, backgroundColor: chartColors.blueArea, fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 6, pointHoverBackgroundColor: chartColors.blue, tension: 0.3 },
+        { label: 'S&P 500', data: spSeries, borderColor: chartColors.orange, backgroundColor: chartColors.orangeArea, fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 6, pointHoverBackgroundColor: chartColors.orange, tension: 0.3 }
+      ]
+    },
+    options: {
+      ...defaultOptions,
+      plugins: {
+        ...defaultOptions.plugins,
+        tooltip: {
+          ...defaultTooltip,
+          callbacks: {
+            label: function(ctx) {
+              const val = ctx.parsed.y;
+              const gain = val - 10000;
+              const pct = ((val / 10000 - 1) * 100).toFixed(1);
+              return `${ctx.dataset.label}: $${val.toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}  (${gain >= 0 ? '+' : ''}${pct}%)`;
+            }
+          }
+        }
+      },
+      scales: {
+        ...defaultOptions.scales,
+        y: { ...defaultOptions.scales.y, ticks: { ...defaultOptions.scales.y.ticks, callback: v => '$' + v.toLocaleString() } }
+      }
+    },
+    plugins: [crosshairPlugin, peakLinePlugin]
+  };
+  chartConfig._peakInfo = {
+    value: portPeak,
+    peakLabel: `Peak: $${Math.round(portPeak).toLocaleString()} (${portPeakDate})`,
+    fromPeakLabel: `Current: ${portFromPeak}% from peak`,
+    color: 'rgba(250,204,21,0.7)'
+  };
+  chartInstances['chartGrowth10k'] = new Chart(ctx, chartConfig);
+}
+
+function buildPortfolioValueChart(portfolioData) {
+  destroyChart('chartPortfolioValue');
+  const labels = portfolioData.map(r => new Date(r.endDate));
+  const values = portfolioData.map(r => r.balance);
+  const contribs = portfolioData.map(r => r.contribution);
+  const withdraws = portfolioData.map(r => r.withdrawal);
+  const returns = portfolioData.map(r => r.ret);
+
+  const ctx = document.getElementById('chartPortfolioValue').getContext('2d');
+  chartInstances['chartPortfolioValue'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Portfolio Value', data: values,
+        borderColor: chartColors.green, backgroundColor: chartColors.greenArea,
+        fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 6, pointHoverBackgroundColor: chartColors.green, tension: 0.3
+      }]
+    },
+    options: {
+      ...defaultOptions,
+      plugins: {
+        ...defaultOptions.plugins,
+        tooltip: {
+          ...defaultTooltip,
+          callbacks: {
+            label: function(ctx) {
+              const i = ctx.dataIndex;
+              const val = values[i];
+              const ret = (returns[i] * 100).toFixed(2);
+              const netFlow = contribs[i] - withdraws[i];
+              return [
+                `Value: $${val.toLocaleString()}`,
+                `Monthly Return: ${returns[i] >= 0 ? '+' : ''}${ret}%`,
+                `Net Flow: ${netFlow >= 0 ? '+' : ''}$${netFlow.toLocaleString()}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        ...defaultOptions.scales,
+        y: { ...defaultOptions.scales.y, ticks: { ...defaultOptions.scales.y.ticks, callback: v => '$' + (v/1000).toFixed(0) + 'k' } }
+      }
+    },
+    plugins: [crosshairPlugin]
+  });
+}
+
+// Plugin for drawdown chart: shows max-drawdown line and current-drawdown annotation
+const ddAnnotationPlugin = {
+  id: 'ddAnnotation',
+  afterDraw(chart) {
+    const info = chart.config._ddInfo;
+    if (!info) return;
+    const yScale = chart.scales.y;
+    const xScale = chart.scales.x;
+    const ctx = chart.ctx;
+    ctx.save();
+    // Max drawdown line
+    const yMax = yScale.getPixelForValue(info.maxDD);
+    if (yMax >= yScale.top && yMax <= yScale.bottom) {
+      ctx.beginPath();
+      ctx.moveTo(xScale.left, yMax);
+      ctx.lineTo(xScale.right, yMax);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(239,68,68,0.45)';
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '600 11px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = 'rgba(239,68,68,0.8)';
+      ctx.fillText(info.maxDDLabel, xScale.left + 8, yMax - 4);
+    }
+    // Current drawdown line (if in drawdown)
+    if (info.currentDD < 0) {
+      const yCur = yScale.getPixelForValue(info.currentDD);
+      if (yCur >= yScale.top && yCur <= yScale.bottom) {
+        ctx.beginPath();
+        ctx.moveTo(xScale.right - 100, yCur);
+        ctx.lineTo(xScale.right, yCur);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(250,204,21,0.7)';
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = '600 11px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = 'rgba(250,204,21,0.9)';
+        ctx.fillText(info.currentDDLabel, xScale.right - 6, yCur + 4);
+      }
+    }
+    ctx.restore();
+  }
+};
+
+function buildDrawdownChart(portfolioData, ddData) {
+  destroyChart('chartDrawdown');
+  const labels = portfolioData.map(r => new Date(r.endDate));
+  const balances = portfolioData.map(r => r.balance);
+  const ddPctSeries = ddData.series.map(v => v * 100);
+  const maxDD = Math.min(...ddPctSeries);
+  const currentDD = ddPctSeries[ddPctSeries.length - 1];
+  const maxDDIdx = ddPctSeries.indexOf(maxDD);
+  const maxDDDate = new Date(portfolioData[maxDDIdx].endDate).toLocaleDateString('en-US',{year:'numeric',month:'short'});
+
+  const ctx = document.getElementById('chartDrawdown').getContext('2d');
+  const chartConfig = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Drawdown', data: ddPctSeries,
+        borderColor: chartColors.red, backgroundColor: chartColors.redArea,
+        fill: true, borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: chartColors.red, tension: 0.3
+      }]
+    },
+    options: {
+      ...defaultOptions,
+      plugins: {
+        ...defaultOptions.plugins,
+        tooltip: {
+          ...defaultTooltip,
+          callbacks: {
+            label: function(ctx) {
+              const i = ctx.dataIndex;
+              const dd = ctx.parsed.y;
+              const bal = balances[i];
+              return [
+                `Drawdown: ${dd.toFixed(2)}%`,
+                `Portfolio: $${bal.toLocaleString()}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        ...defaultOptions.scales,
+        y: { ...defaultOptions.scales.y, ticks: { ...defaultOptions.scales.y.ticks, callback: v => v.toFixed(0) + '%' }, max: 0 }
+      }
+    },
+    plugins: [crosshairPlugin, ddAnnotationPlugin]
+  };
+  chartConfig._ddInfo = {
+    maxDD: maxDD,
+    maxDDLabel: `Max DD: ${maxDD.toFixed(1)}% (${maxDDDate})`,
+    currentDD: currentDD,
+    currentDDLabel: currentDD < 0 ? `Now: ${currentDD.toFixed(1)}%` : ''
+  };
+  chartInstances['chartDrawdown'] = new Chart(ctx, chartConfig);
+}
+
+function buildCashflowChart(portfolioData) {
+  destroyChart('chartCashflow');
+  const labels = portfolioData.map(r => new Date(r.endDate));
+  const netContribs = portfolioData.map(r => r.contribution - r.withdrawal);
+  const contribs = portfolioData.map(r => r.contribution);
+  const withdrawals = portfolioData.map(r => r.withdrawal);
+  // Color bars green when net positive, red when net negative
+  const bgColors = netContribs.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)');
+  const hoverBgColors = netContribs.map(v => v >= 0 ? 'rgba(34,197,94,0.9)' : 'rgba(239,68,68,0.9)');
+
+  const ctx = document.getElementById('chartCashflow').getContext('2d');
+  chartInstances['chartCashflow'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Net Contribution',
+        data: netContribs,
+        backgroundColor: bgColors,
+        hoverBackgroundColor: hoverBgColors,
+        borderRadius: 3
+      }]
+    },
+    options: {
+      ...defaultOptions,
+      plugins: {
+        ...defaultOptions.plugins,
+        tooltip: {
+          ...defaultTooltip,
+          callbacks: {
+            label: function(ctx) {
+              const i = ctx.dataIndex;
+              const net = netContribs[i];
+              return [
+                `Net: ${net >= 0 ? '+' : ''}$${net.toLocaleString(undefined,{maximumFractionDigits:0})}`,
+                `In: $${contribs[i].toLocaleString(undefined,{maximumFractionDigits:0})}`,
+                `Out: $${withdrawals[i].toLocaleString(undefined,{maximumFractionDigits:0})}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        ...defaultOptions.scales,
+        y: { ...defaultOptions.scales.y, ticks: { ...defaultOptions.scales.y.ticks, callback: v => '$' + (v/1000).toFixed(0) + 'k' } }
+      }
+    }
+  });
+}
+
+function buildNetCashflowChart(portfolioData) {
+  destroyChart('chartNetCashflow');
+  const labels = portfolioData.map(r => new Date(r.endDate));
+  const balances = portfolioData.map(r => r.balance);
+  let cum = 0;
+  const cumData = portfolioData.map(r => { cum += (r.contribution - r.withdrawal); return cum; });
+
+  const ctx = document.getElementById('chartNetCashflow').getContext('2d');
+  chartInstances['chartNetCashflow'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Cumulative Net Cashflow', data: cumData,
+        borderColor: chartColors.purple, backgroundColor: 'rgba(168,85,247,0.1)',
+        fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: chartColors.purple, tension: 0.3
+      }]
+    },
+    options: {
+      ...defaultOptions,
+      plugins: {
+        ...defaultOptions.plugins,
+        tooltip: {
+          ...defaultTooltip,
+          callbacks: {
+            label: function(ctx) {
+              const i = ctx.dataIndex;
+              const cumVal = cumData[i];
+              const bal = balances[i];
+              const gain = bal - cumVal;
+              return [
+                `Cum. Net Invested: $${cumVal.toLocaleString(undefined,{maximumFractionDigits:0})}`,
+                `Portfolio Value: $${bal.toLocaleString(undefined,{maximumFractionDigits:0})}`,
+                `Investment Gain: ${gain >= 0 ? '+' : ''}$${gain.toLocaleString(undefined,{maximumFractionDigits:0})}`
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        ...defaultOptions.scales,
+        y: { ...defaultOptions.scales.y, ticks: { ...defaultOptions.scales.y.ticks, callback: v => '$' + (v/1000).toFixed(0) + 'k' } }
+      }
+    },
+    plugins: [crosshairPlugin]
+  });
+}
+
+// ===================== UI HELPERS =====================
+function fmt(val, type = 'pct') {
+  if (val === null || val === undefined) return '--';
+  if (type === 'pct') return (val >= 0 ? '+' : '') + (val * 100).toFixed(2) + '%';
+  if (type === 'dollar') return '$' + Math.round(val).toLocaleString();
+  if (type === 'number') return val.toFixed(2);
+  return val;
+}
+
+function colorClass(val) {
+  if (val === null || val === undefined) return 'text-dark-400';
+  return val >= 0 ? 'text-green-400' : 'text-red-400';
+}
+
+function glowClass(val) {
+  if (val === null || val === undefined) return '';
+  return val >= 0 ? 'glow-green' : 'glow-red';
+}
+
+function renderCard(id, label, value, subtitle) {
+  const el = document.getElementById(id);
+  el.innerHTML = `
+    <div class="text-xs text-dark-400 mb-1">${label}</div>
+    <div class="text-lg font-bold ${colorClass(value)} ${glowClass(value)}">${fmt(value)}</div>
+    ${subtitle ? `<div class="text-[10px] text-dark-500 mt-0.5">${subtitle}</div>` : ''}
+  `;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  t.classList.remove('hidden');
+  setTimeout(() => { t.classList.add('opacity-100'); t.classList.remove('translate-y-4','opacity-0'); }, 10);
+  setTimeout(() => { t.classList.remove('opacity-100'); t.classList.add('translate-y-4','opacity-0'); setTimeout(() => t.classList.add('hidden'), 300); }, 3000);
+}
+
+// ===================== TAB SWITCHING =====================
+function switchTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+  document.getElementById('panel-' + tab).classList.remove('hidden');
+  document.getElementById('tab-' + tab).classList.add('tab-active');
+
+  // Lazy render charts
+  if (tab === 'growth' && !chartInstances['chartGrowth10k']) renderGrowthCharts();
+  if (tab === 'drawdown' && !chartInstances['chartDrawdown']) renderDrawdownCharts();
+  if (tab === 'cashflow' && !chartInstances['chartCashflow']) renderCashflowCharts();
+  if (tab === 'heatmap' && !document.getElementById('heatmapTable').innerHTML.includes('hm-cell')) renderHeatmap();
+}
+
+// ===================== ACCOUNTS TABLE =====================
+function renderAccountsTable() {
+  const tbody = document.getElementById('accountsTable');
+  const totalBal = Object.values(RAW.balances).reduce((a, b) => a + b, 0);
+  let html = '';
+  const names = Object.keys(RAW.balances);
+  names.sort((a, b) => RAW.balances[b] - RAW.balances[a]);
+
+  const select = document.getElementById('modalAccount');
+  select.innerHTML = '';
+
+  for (const acct of names) {
+    if (STATE.archived.has(acct)) continue;
+    const bal = RAW.balances[acct];
+    const pct = totalBal > 0 ? (bal / totalBal * 100) : 0;
+    const since = RAW.since_dates[acct] || '--';
+    const sinceFormatted = since !== '--' ? new Date(since).toLocaleDateString('en-US', { year: 'numeric', month: 'short' }) : '--';
+
+    html += `<tr class="border-t border-dark-700/30 hover:bg-dark-700/20 transition">
+      <td class="px-5 py-3 font-medium text-white">${acct}</td>
+      <td class="px-5 py-3 text-right font-mono ${colorClass(bal)}">${fmt(bal, 'dollar')}</td>
+      <td class="px-5 py-3 text-right text-dark-300">${pct.toFixed(1)}%</td>
+      <td class="px-5 py-3 text-dark-300">${sinceFormatted}</td>
+      <td class="px-5 py-3 text-center"><span class="px-2 py-0.5 text-xs rounded-full bg-green-500/10 text-green-400 font-medium">Active</span></td>
+      <td class="px-5 py-3 text-center">
+        <button onclick="archiveAccount('${acct}')" class="px-2 py-1 bg-dark-600 hover:bg-red-600/20 hover:text-red-400 text-dark-300 text-xs rounded transition" title="Close account (balance must be $0)">Archive</button>
+      </td>
+    </tr>`;
+
+    const opt = document.createElement('option');
+    opt.value = acct; opt.textContent = acct;
+    select.appendChild(opt);
+  }
+  tbody.innerHTML = html;
+  renderArchivedTable();
+}
+
+function renderArchivedTable() {
+  if (STATE.archived.size === 0) {
+    document.getElementById('archivedSection').classList.add('hidden');
+    return;
+  }
+  document.getElementById('archivedSection').classList.remove('hidden');
+  const tbody = document.getElementById('archivedTable');
+  let html = '';
+  for (const acct of STATE.archived) {
+    html += `<tr class="border-t border-dark-700/30">
+      <td class="px-5 py-3 text-dark-400">${acct}</td>
+      <td class="px-5 py-3 text-right text-dark-400">$0</td>
+      <td class="px-5 py-3 text-center"><span class="px-2 py-0.5 text-xs rounded-full bg-dark-600 text-dark-400 font-medium">Archived</span></td>
+    </tr>`;
+  }
+  tbody.innerHTML = html;
+}
+
+function archiveAccount(acct) {
+  const bal = RAW.balances[acct];
+  if (bal !== 0) {
+    showToast(`Cannot archive "${acct}": balance is $${bal.toLocaleString()}. Must be exactly $0.`);
+    return;
+  }
+  STATE.archived.add(acct);
+  renderAccountsTable();
+  showToast(`"${acct}" archived successfully.`);
+}
+
+// ===================== ADD DATA MODAL =====================
+function openAddDataModal() {
+  document.getElementById('addDataModal').classList.remove('hidden');
+  document.getElementById('modalMonth').value = new Date().toISOString().slice(0, 7);
+}
+function closeAddDataModal() { document.getElementById('addDataModal').classList.add('hidden'); }
+
+function submitAddData() {
+  const acct = document.getElementById('modalAccount').value;
+  const month = document.getElementById('modalMonth').value;
+  const contrib = parseFloat(document.getElementById('modalContrib').value) || 0;
+  const withdraw = parseFloat(document.getElementById('modalWithdraw').value) || 0;
+  const balance = parseFloat(document.getElementById('modalBalance').value) || 0;
+
+  if (!acct || !month) { showToast('Please fill account and month.'); return; }
+
+  if (!STATE.addedData[acct]) STATE.addedData[acct] = [];
+  STATE.addedData[acct].push({ month, contribution: contrib, withdrawal: withdraw, balance });
+
+  RAW.balances[acct] = balance;
+  renderAccountsTable();
+  updateHeader();
+  closeAddDataModal();
+  showToast(`Added data for ${acct} (${month}): Balance $${balance.toLocaleString()}`);
+}
+
+// ===================== FILE UPLOAD =====================
+function handleFileUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      showToast('File loaded: ' + workbook.SheetNames.length + ' sheets found. Use Add Data to enter new months.');
+    } catch (err) {
+      showToast('Error reading file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ===================== GSPC UPDATE =====================
+function updateGSPCStatus() {
+  document.getElementById('gspcCount').textContent = RAW.sp500.length;
+  const last = RAW.sp500[RAW.sp500.length - 1];
+  document.getElementById('gspcLatest').textContent = last ? `${last[0]} ($${last[1].toLocaleString()})` : '--';
+}
+
+function refreshAllCharts() {
+  // Re-run SP500 returns and re-render everything that depends on it
+  const { portfolio, sp500 } = parseData();
+  portData2017 = getPortfolioFromMarch2017(portfolio);
+  sp500Data2017 = getSP500FromMarch2017(sp500);
+  portReturns = calcReturns(portData2017);
+  spReturns = calcSP500Returns(sp500Data2017, portData2017);
+  ddData = calcDrawdowns(portData2017);
+  renderBenchmarkTable(portReturns, spReturns);
+  // Force re-render charts on next tab visit
+  ['chartGrowth10k','chartPortfolioValue','chartDrawdown','chartCashflow','chartNetCashflow'].forEach(destroyChart);
+  // Clear and re-render heatmap
+  document.getElementById('heatmapTable').innerHTML = '';
+  renderAnnualReturnsHeatmap();
+  // Re-render if currently visible
+  const activeTab = document.querySelector('.tab-active')?.id?.replace('tab-','');
+  if (activeTab === 'growth') renderGrowthCharts();
+  if (activeTab === 'drawdown') renderDrawdownCharts();
+  if (activeTab === 'cashflow') renderCashflowCharts();
+}
+
+function handleGSPCUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: function(results) {
+      let count = 0;
+      const existingDates = new Set(RAW.sp500.map(r => r[0]));
+      for (const row of results.data) {
+        const date = row.observation_date || row.date || row.Date;
+        const val = parseFloat(row.SP500 || row.Close || row.close || row.Value);
+        if (date && !isNaN(val) && !existingDates.has(date)) {
+          RAW.sp500.push([date, val]);
+          count++;
+        }
+      }
+      RAW.sp500.sort((a, b) => a[0].localeCompare(b[0]));
+      updateGSPCStatus();
+      refreshAllCharts();
+      showToast(`GSPC updated: ${count} new data points added (${RAW.sp500.length} total).`);
+    },
+    error: function(err) { showToast('CSV parse error: ' + err.message); }
+  });
+}
+
+function addGSPCManual() {
+  const monthInput = document.getElementById('gspcMonth').value;
+  const price = parseFloat(document.getElementById('gspcPrice').value);
+  if (!monthInput || isNaN(price) || price <= 0) {
+    showToast('Enter a valid month and closing price.');
+    return;
+  }
+  // Convert YYYY-MM to last day of month
+  const [y, m] = monthInput.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+
+  // Check if already exists
+  const existing = RAW.sp500.find(r => r[0].substring(0,7) === monthInput);
+  if (existing) {
+    existing[1] = price;
+    showToast(`Updated GSPC for ${monthInput}: $${price.toLocaleString()}`);
+  } else {
+    RAW.sp500.push([dateStr, price]);
+    RAW.sp500.sort((a, b) => a[0].localeCompare(b[0]));
+    showToast(`Added GSPC for ${dateStr}: $${price.toLocaleString()}`);
+  }
+  updateGSPCStatus();
+  refreshAllCharts();
+  document.getElementById('gspcPrice').value = '';
+}
+
+// ===================== BENCHMARK TABLE =====================
+function renderBenchmarkTable(portReturns, spReturns) {
+  // periods: [label, key, annualizeYears (null=absolute)]
+  const nMonths = portData2017.length;
+  const periods = [
+    ['1 Month', '1m', null], ['3 Months', '3m', null], ['6 Months', '6m', null],
+    ['YTD', 'ytd', null], ['1 Year', '1y', null],
+    ['3 Years (CAGR)', '3y', 3], ['5 Years (CAGR)', '5y', 5],
+    ['Since Inception (CAGR)', 'inception', nMonths / 12]
+  ];
+
+  let html = '';
+  for (const [label, key, annYears] of periods) {
+    let pv = portReturns[key], sv = spReturns[key];
+    if (annYears && pv !== null) pv = calcCAGR(pv, annYears);
+    if (annYears && sv !== null) sv = calcCAGR(sv, annYears);
+    const diff = (pv !== null && sv !== null) ? pv - sv : null;
+    html += `<tr class="border-t border-dark-700/30 hover:bg-dark-700/20">
+      <td class="px-5 py-2.5 text-dark-300">${label}</td>
+      <td class="px-5 py-2.5 text-right font-mono ${colorClass(pv)}">${fmt(pv)}</td>
+      <td class="px-5 py-2.5 text-right font-mono ${colorClass(sv)}">${fmt(sv)}</td>
+      <td class="px-5 py-2.5 text-right font-mono ${colorClass(diff)}">${fmt(diff)}</td>
+    </tr>`;
+  }
+  document.getElementById('benchmarkTable').innerHTML = html;
+}
+
+// ===================== MAIN RENDER =====================
+function updateHeader() {
+  const totalBal = Object.entries(RAW.balances).reduce((a, [k, v]) => a + (STATE.archived.has(k) ? 0 : v), 0);
+  document.getElementById('totalValue').textContent = '$' + totalBal.toLocaleString();
+  const lastReturn = RAW.returns_trailing['1_month'];
+  const changeEl = document.getElementById('totalChange');
+  changeEl.textContent = fmt(lastReturn);
+  changeEl.className = 'text-sm px-2 py-0.5 rounded font-medium ' +
+    (lastReturn >= 0 ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400');
+}
+
+// Render Annual Cashflow Summary Table
+function renderAnnualCashflow() {
+  const { portfolio } = parseData();
+  const yearMap = {};
+  for (const row of portfolio) {
+    const yr = new Date(row.date).getFullYear();
+    if (yr < 2017) continue;
+    if (!yearMap[yr]) yearMap[yr] = { contrib: 0, withdraw: 0 };
+    yearMap[yr].contrib += row.contribution;
+    yearMap[yr].withdraw += row.withdrawal;
+  }
+  let html = '';
+  const years = Object.keys(yearMap).map(Number).sort();
+  for (const yr of years) {
+    const contrib = yearMap[yr].contrib;
+    const withdraw = yearMap[yr].withdraw;
+    const net = contrib - withdraw;
+    html += `<tr><td class="px-5 py-3 text-left text-dark-300">${yr}</td>`;
+    html += `<td class="px-5 py-3 text-right text-green-400 font-medium">$${contrib.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>`;
+    html += `<td class="px-5 py-3 text-right text-red-400 font-medium">$${withdraw.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>`;
+    html += `<td class="px-5 py-3 text-right text-blue-400 font-medium">$${net.toLocaleString(undefined, {maximumFractionDigits: 0})}</td></tr>`;
+  }
+  document.getElementById('annualCashflowTable').innerHTML = html;
+}
+
+// Render Per-Account Lifetime Returns Table
+function renderAcctLifetimeReturns() {
+  const { names, mwrr, twrr, inflation, since } = RAW.acctReturnsLife;
+  // Create sorted indices: Portfolio first, then GSPC/GSPC, then by balance desc
+  const indices = names.map((_, i) => i);
+  indices.sort((a, b) => {
+    const nameA = names[a], nameB = names[b];
+    if (nameA === 'Portfolio') return -1;
+    if (nameB === 'Portfolio') return 1;
+    if (nameA === 'GSPC' || nameA === 'GSPC') return -1;
+    if (nameB === 'GSPC' || nameB === 'GSPC') return 1;
+    const balA = RAW.balances[nameA] || RAW.balances[nameA.toLowerCase()] || 0;
+    const balB = RAW.balances[nameB] || RAW.balances[nameB.toLowerCase()] || 0;
+    return balB - balA;
+  });
+  let html = '';
+  for (const i of indices) {
+    const real = mwrr[i] - inflation[i];
+    const mwrrColor = mwrr[i] >= 0 ? 'text-green-400' : 'text-red-400';
+    const twrrColor = twrr[i] >= 0 ? 'text-green-400' : 'text-red-400';
+    html += `<tr><td class="px-5 py-3 text-left text-dark-300">${names[i]}</td>`;
+    html += `<td class="px-5 py-3 text-right font-medium ${mwrrColor}">${(mwrr[i]*100).toFixed(2)}%</td>`;
+    html += `<td class="px-5 py-3 text-right font-medium ${twrrColor}">${(twrr[i]*100).toFixed(2)}%</td>`;
+    html += `<td class="px-5 py-3 text-right font-medium text-yellow-400">${(real*100).toFixed(2)}%</td>`;
+    html += `<td class="px-5 py-3 text-left text-dark-400">${since[i]}</td></tr>`;
+  }
+  document.getElementById('acctLifetimeTable').innerHTML = html;
+}
+
+// Render Per-Account Trailing Returns Table
+function renderAcctTrailingReturns() {
+  const { periods, data } = RAW.acctReturnsTrailing;
+  let html = '';
+  const accts = Object.keys(data).sort((a, b) => {
+    // Keep Portfolio first
+    if (a === 'Portfolio') return -1;
+    if (b === 'Portfolio') return 1;
+    // Keep GSPC (or GSPC) second
+    if (a === 'GSPC' || a === 'GSPC') return -1;
+    if (b === 'GSPC' || b === 'GSPC') return 1;
+    // Sort by balance descending
+    const balA = RAW.balances[a] || RAW.balances[a.toLowerCase()] || 0;
+    const balB = RAW.balances[b] || RAW.balances[b.toLowerCase()] || 0;
+    return balB - balA;
+  });
+  for (const acct of accts) {
+    const vals = data[acct];
+    let row = `<tr><td class="px-5 py-3 text-left text-dark-300">${acct}</td>`;
+    for (const val of vals) {
+      if (val === null) {
+        row += '<td class="px-5 py-3 text-right text-dark-600">—</td>';
+      } else {
+        const color = val >= 0 ? 'text-green-400' : 'text-red-400';
+        row += `<td class="px-5 py-3 text-right font-medium ${color}">${(val*100).toFixed(2)}%</td>`;
+      }
+    }
+    row += '</tr>';
+    html += row;
+  }
+  document.getElementById('acctTrailingTable').innerHTML = html;
+}
+
+// Render Annual Returns Heatmap
+function renderAnnualReturnsHeatmap() {
+  const { years, names, data } = RAW.annualReturns;
+
+  // Compute 2026 YTD returns per account
+  if (!years.includes(2026)) {
+    const { portfolio } = parseData();
+    const ytdReturns = {};
+    // Portfolio return from portfolio data
+    let portCum = 1;
+    for (const row of portfolio) {
+      if (new Date(row.date).getFullYear() === 2026) portCum *= (1 + row.ret);
+    }
+    ytdReturns['Portfolio'] = portCum - 1;
+
+    // Per-account returns from RAW.accounts
+    if (RAW.accounts) {
+      for (const [acctName, acctData] of Object.entries(RAW.accounts)) {
+        let cum = 1;
+        let has2026 = false;
+        for (const r of acctData) {
+          const d = new Date(r[0]);
+          if (d.getFullYear() === 2026) {
+            cum *= (1 + r[5]);
+            has2026 = true;
+          }
+        }
+        ytdReturns[acctName] = has2026 ? cum - 1 : null;
+      }
+    }
+
+    years.push(2026);
+    const ytdRow = names.map(name => {
+      if (name === 'Inflation') return null; // no inflation for partial year
+      // Match name to account
+      const key = Object.keys(ytdReturns).find(k => k.toLowerCase() === name.toLowerCase()) || name;
+      return ytdReturns[key] !== undefined ? ytdReturns[key] : null;
+    });
+    data[2026] = ytdRow;
+  }
+
+  let html = '<thead><tr><th class="hm-header" style="text-align:left">Year</th>';
+  for (const name of names) html += `<th class="hm-header">${name}</th>`;
+  html += '</tr></thead><tbody>';
+
+  for (const yr of years) {
+    const ydata = data[yr];
+    html += `<tr><td class="hm-year">${yr}${yr === 2026 ? ' (YTD)' : ''}</td>`;
+    for (let i = 0; i < names.length; i++) {
+      const val = ydata[i];
+      if (val === null) {
+        html += '<td><div class="hm-cell" style="background:transparent;color:#334155">&mdash;</div></td>';
+      } else {
+        const valPercent = val * 100;
+        const c = getReturnColor(valPercent);
+        html += `<td><div class="hm-cell" style="background:${c.bg};color:${c.text}">${valPercent >= 0 ? '' : ''}${valPercent.toFixed(1)}%</div></td>`;
+      }
+    }
+    html += '</tr>';
+  }
+
+  html += '</tbody>';
+  document.getElementById('annualReturnsTable').innerHTML = html;
+}
+
+// Render Portfolio Composition Donut Chart
+function renderPortfolioComposition() {
+  const { balances } = RAW;
+  const accountNames = Object.keys(balances).filter(k => !STATE.archived.has(k));
+  const values = accountNames.map(k => balances[k]);
+
+  const colors = [
+    'rgba(59,130,246,1)', 'rgba(34,197,94,1)', 'rgba(239,68,68,1)', 'rgba(249,115,22,1)',
+    'rgba(168,85,247,1)', 'rgba(236,72,153,1)', 'rgba(79,172,254,1)', 'rgba(56,189,248,1)',
+    'rgba(34,211,238,1)', 'rgba(16,185,129,1)', 'rgba(251,146,60,1)', 'rgba(244,114,182,1)',
+    'rgba(129,140,248,1)', 'rgba(99,102,241,1)', 'rgba(139,92,246,1)', 'rgba(168,85,247,1)',
+    'rgba(192,132,250,1)'
+  ];
+
+  destroyChart('chartPortfolioComposition');
+  const ctx = document.getElementById('chartPortfolioComposition').getContext('2d');
+  chartInstances['chartPortfolioComposition'] = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: accountNames,
+      datasets: [{
+        data: values,
+        backgroundColor: colors.slice(0, accountNames.length),
+        borderColor: '#1e293b',
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            color: '#e2e8f0',
+            font: { size: 12 },
+            padding: 15,
+            generateLabels: function(chart) {
+              const data = chart.data;
+              const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+              return data.labels.map((label, i) => ({
+                text: label + ' (' + ((data.datasets[0].data[i] / total) * 100).toFixed(1) + '%)',
+                fillStyle: data.datasets[0].backgroundColor[i],
+                hidden: !chart.getDataVisibility(i),
+                index: i
+              }));
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const pct = ((ctx.parsed / total) * 100).toFixed(1);
+              return ctx.label + ': $' + ctx.parsed.toLocaleString() + ' (' + pct + '%)';
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+let portData2017, sp500Data2017, portReturns, spReturns, ddData;
+
+function init() {
+  const { portfolio, sp500 } = parseData();
+  portData2017 = getPortfolioFromMarch2017(portfolio);
+  sp500Data2017 = getSP500FromMarch2017(sp500);
+
+  // Header
+  document.getElementById('asOfDate').textContent = portData2017.length > 0 ?
+    new Date(portData2017[portData2017.length - 1].endDate).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' }) : '--';
+  updateHeader();
+
+  // Performance cards
+  portReturns = calcReturns(portData2017);
+  spReturns = calcSP500Returns(sp500Data2017, portData2017);
+
+  renderCard('card-1m', '1 Month', portReturns['1m']);
+  renderCard('card-3m', '3 Months', portReturns['3m']);
+  renderCard('card-6m', '6 Months', portReturns['6m']);
+  renderCard('card-ytd', 'YTD', portReturns['ytd']);
+  renderCard('card-1y', '1 Year', portReturns['1y']);
+  // >1Y: show annualized (CAGR) instead of absolute
+  const cagr3y = portReturns['3y'] !== null ? calcCAGR(portReturns['3y'], 3) : null;
+  const cagr5y = portReturns['5y'] !== null ? calcCAGR(portReturns['5y'], 5) : null;
+  const inceptionYears = portData2017.length / 12;
+  const cagrInception = portReturns['inception'] !== null ? calcCAGR(portReturns['inception'], inceptionYears) : null;
+  renderCard('card-3y', '3Y CAGR', cagr3y, 'annualized');
+  renderCard('card-5y', '5Y CAGR', cagr5y, 'annualized');
+  renderCard('card-inception', 'Inception CAGR', cagrInception, `${inceptionYears.toFixed(1)}yr ann.`);
+
+  // Secondary metrics
+  const years = portData2017.length / 12;
+  const cagr = calcCAGR(portReturns['inception'], years);
+  const monthlyRets = portData2017.map(r => r.ret);
+  const sharpe = calcSharpe(monthlyRets);
+  ddData = calcDrawdowns(portData2017);
+
+  document.getElementById('metric-cagr').textContent = fmt(cagr);
+  document.getElementById('metric-cagr').className = 'text-2xl font-bold ' + colorClass(cagr);
+  document.getElementById('metric-sharpe').textContent = sharpe.toFixed(2);
+  const maxDD = ddData.series.reduce((a, b) => Math.min(a, b), 0);
+  document.getElementById('metric-maxdd').textContent = (maxDD * 100).toFixed(2) + '%';
+
+  // YoY Portfolio Value Comparison
+  const lastRow = portData2017[portData2017.length - 1];
+  const lastDate = new Date(lastRow.endDate);
+  const lastBalance = lastRow.balance;
+  // Find same month last year
+  const targetMonth = lastDate.getMonth();
+  const targetYearAgo = lastDate.getFullYear() - 1;
+  let lastYearBalance = null;
+  for (const row of portData2017) {
+    const d = new Date(row.endDate);
+    if (d.getFullYear() === targetYearAgo && d.getMonth() === targetMonth) {
+      lastYearBalance = row.balance;
+      break;
+    }
+  }
+  const yoyEl = document.getElementById('yoy-comparison');
+  if (lastYearBalance !== null) {
+    const change = lastBalance - lastYearBalance;
+    const pctChange = ((lastBalance / lastYearBalance) - 1) * 100;
+    const arrow = change >= 0 ? '↑' : '↓';
+    const colorCls = change >= 0 ? 'text-green-400' : 'text-red-400';
+    const monthName = lastDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const lastYearMonthName = new Date(targetYearAgo, targetMonth).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    yoyEl.innerHTML = `
+      <div class="flex flex-col">
+        <span class="text-xs text-dark-400">${monthName}</span>
+        <span class="text-xl font-bold text-white">$${lastBalance.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+      </div>
+      <div class="text-dark-500 text-lg">vs</div>
+      <div class="flex flex-col">
+        <span class="text-xs text-dark-400">${lastYearMonthName}</span>
+        <span class="text-xl font-bold text-dark-300">$${lastYearBalance.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+      </div>
+      <div class="flex flex-col items-center">
+        <span class="text-xs text-dark-400">Change</span>
+        <span class="text-xl font-bold ${colorCls}">${arrow} ${Math.abs(pctChange).toFixed(1)}%</span>
+        <span class="text-xs ${colorCls}">${change >= 0 ? '+' : ''}$${change.toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+      </div>
+    `;
+  } else {
+    yoyEl.innerHTML = '<span class="text-dark-500 text-sm">Insufficient data for YoY comparison</span>';
+  }
+
+  // Benchmark table
+  renderBenchmarkTable(portReturns, spReturns);
+
+  // New render functions for additional tables and charts
+  renderAnnualCashflow();
+  renderAcctLifetimeReturns();
+  renderAcctTrailingReturns();
+  renderAnnualReturnsHeatmap();
+  renderPortfolioComposition();
+
+  // Accounts table
+  renderAccountsTable();
+
+  // GSPC status
+  updateGSPCStatus();
+}
+
+function renderGrowthCharts() {
+  buildGrowth10kChart(portData2017, spReturns.monthlyReturns);
+  buildPortfolioValueChart(portData2017);
+  // Populate peak badge from chart config
+  const ci = chartInstances['chartGrowth10k'];
+  if (ci && ci.config._peakInfo) {
+    const badge = document.getElementById('growth10kPeakBadge');
+    badge.textContent = ci.config._peakInfo.fromPeakLabel;
+    badge.classList.remove('hidden');
+  }
+}
+
+function renderDrawdownCharts() {
+  buildDrawdownChart(portData2017, ddData);
+  // Populate badge
+  const ci = chartInstances['chartDrawdown'];
+  if (ci && ci.config._ddInfo) {
+    const badge = document.getElementById('drawdownPeakBadge');
+    const info = ci.config._ddInfo;
+    if (info.currentDD < 0) {
+      badge.textContent = `Currently ${info.currentDD.toFixed(1)}% from peak  |  Max DD: ${info.maxDD.toFixed(1)}%`;
+    } else {
+      badge.textContent = `At peak  |  Max DD: ${info.maxDD.toFixed(1)}%`;
+      badge.className = badge.className.replace('bg-red-500/10 text-red-400', 'bg-green-500/10 text-green-400');
+    }
+    badge.classList.remove('hidden');
+  }
+  // Fill drawdown table using actual date-based durations
+  const tbody = document.getElementById('drawdownTable');
+  let html = '';
+  ddData.top5.forEach((dd, i) => {
+    const startDate = dd.startIdx >= 0 && dd.startIdx < portData2017.length
+      ? new Date(portData2017[dd.startIdx].endDate).toLocaleDateString('en-US',{year:'numeric',month:'short'}) : '--';
+    const troughDate = dd.troughIdx >= 0 && dd.troughIdx < portData2017.length
+      ? new Date(portData2017[dd.troughIdx].endDate).toLocaleDateString('en-US',{year:'numeric',month:'short'}) : '--';
+    const recoveryNote = dd.recovered ? '' : ' <span class="text-xs text-yellow-400">(ongoing)</span>';
+    html += `<tr class="border-t border-dark-700/30">
+      <td class="px-5 py-2.5 text-dark-300">${i + 1}</td>
+      <td class="px-5 py-2.5 text-dark-300">${startDate}</td>
+      <td class="px-5 py-2.5 text-dark-300">${troughDate}</td>
+      <td class="px-5 py-2.5 text-right font-mono text-red-400">${(dd.depth * 100).toFixed(2)}%</td>
+      <td class="px-5 py-2.5 text-right text-dark-300">${dd.durMonths} mo${recoveryNote}</td>
+    </tr>`;
+  });
+  tbody.innerHTML = html;
+}
+
+function renderCashflowCharts() {
+  buildCashflowChart(portData2017);
+  buildNetCashflowChart(portData2017);
+
+  const totalC = portData2017.reduce((a, r) => a + r.contribution, 0);
+  const totalW = portData2017.reduce((a, r) => a + r.withdrawal, 0);
+  const totalN = totalC - totalW;
+  document.getElementById('totalContrib').textContent = '$' + Math.round(totalC).toLocaleString();
+  document.getElementById('totalWithdraw').textContent = '$' + Math.round(totalW).toLocaleString();
+  document.getElementById('totalNet').textContent = '$' + Math.round(totalN).toLocaleString();
+
+  // Also render the annual cashflow table
+  renderAnnualCashflow();
+}
+
+// ===================== MONTHLY RETURNS HEATMAP =====================
+function getReturnColor(pct) {
+  // pct is like -5.6 (percent, not decimal)
+  if (pct === null || pct === undefined) return { bg: 'transparent', text: '#475569' };
+  // Color scale: deep red -> red -> orange -> yellow -> lime -> green -> deep green
+  const stops = [
+    { v: -20, r: 127, g: 29, b: 29 },   // #7f1d1d
+    { v: -15, r: 153, g: 27, b: 27 },   // #991b1b
+    { v: -10, r: 220, g: 38, b: 38 },   // #dc2626
+    { v: -5,  r: 249, g: 115, b: 22 },  // #f97316
+    { v: 0,   r: 251, g: 191, b: 36 },  // #fbbf24
+    { v: 5,   r: 132, g: 204, b: 22 },  // #84cc16
+    { v: 10,  r: 34, g: 197, b: 94 },   // #22c55e
+    { v: 15,  r: 21, g: 128, b: 61 },   // #15803d
+    { v: 20,  r: 5, g: 102, b: 40 },    // #056628
+  ];
+  const clamped = Math.max(-20, Math.min(20, pct));
+  let lower = stops[0], upper = stops[stops.length - 1];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (clamped >= stops[i].v && clamped <= stops[i + 1].v) {
+      lower = stops[i]; upper = stops[i + 1]; break;
+    }
+  }
+  const t = upper.v === lower.v ? 0 : (clamped - lower.v) / (upper.v - lower.v);
+  const r = Math.round(lower.r + t * (upper.r - lower.r));
+  const g = Math.round(lower.g + t * (upper.g - lower.g));
+  const b = Math.round(lower.b + t * (upper.b - lower.b));
+  const bg = `rgb(${r},${g},${b})`;
+  // Text: white for dark backgrounds, dark for light
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const text = lum < 0.55 ? '#f1f5f9' : '#0f172a';
+  return { bg, text };
+}
+
+function renderHeatmap() {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  // Build year->month return map from portfolio data (all data, not just from 2017)
+  const { portfolio } = parseData();
+  const yearMap = {}; // { 2015: { 0: ret, 1: ret, ... }, ... }
+  for (const row of portfolio) {
+    const d = new Date(row.date);
+    const yr = d.getFullYear();
+    const mo = d.getMonth(); // 0-based
+    if (!yearMap[yr]) yearMap[yr] = {};
+    yearMap[yr][mo] = row.ret * 100; // store as percent
+  }
+  const years = Object.keys(yearMap).map(Number).filter(y => y >= 2017).sort();
+
+  let html = '<thead><tr><th class="hm-header" style="text-align:left">Year</th>';
+  for (const m of months) html += `<th class="hm-header">${m}</th>`;
+  html += '<th class="hm-header" style="min-width:80px">Annual</th></tr></thead><tbody>';
+
+  for (const yr of years) {
+    html += `<tr><td class="hm-year">${yr}</td>`;
+    let annualCum = 1;
+    let hasData = false;
+    const startMonth = yr === 2017 ? 2 : 0;  // March (index 2) for 2017, January for others
+    for (let mo = 0; mo < 12; mo++) {
+      if (yr === 2017 && mo < 2) {
+        html += '<td><div class="hm-cell" style="background:transparent;color:#334155">&mdash;</div></td>';
+        continue;
+      }
+      const val = yearMap[yr][mo];
+      if (val !== undefined && val !== null) {
+        annualCum *= (1 + val / 100);
+        hasData = true;
+        const c = getReturnColor(val);
+        html += `<td><div class="hm-cell" style="background:${c.bg};color:${c.text}">${val >= 0 ? '' : ''}${val.toFixed(1)}%</div></td>`;
+      } else {
+        html += '<td><div class="hm-cell" style="background:transparent;color:#334155">&mdash;</div></td>';
+      }
+    }
+    // Annual total
+    if (hasData) {
+      const annual = (annualCum - 1) * 100;
+      const ac = getReturnColor(annual);
+      html += `<td><div class="hm-annual" style="background:${ac.bg};color:${ac.text}">${annual >= 0 ? '' : ''}${annual.toFixed(1)}%</div></td>`;
+    } else {
+      html += '<td><div class="hm-annual" style="background:transparent;color:#334155">&mdash;</div></td>';
+    }
+    html += '</tr>';
+  }
+
+  // Summary row: average for each month
+  html += '<tr style="border-top:2px solid #334155"><td class="hm-year" style="color:#64748b">Avg</td>';
+  for (let mo = 0; mo < 12; mo++) {
+    const vals = years.map(yr => yearMap[yr][mo]).filter(v => v !== undefined && v !== null);
+    if (vals.length > 0) {
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const c = getReturnColor(avg);
+      html += `<td><div class="hm-cell" style="background:${c.bg};color:${c.text}">${avg.toFixed(1)}%</div></td>`;
+    } else {
+      html += '<td><div class="hm-cell">&mdash;</div></td>';
+    }
+  }
+  html += '<td></td></tr>';
+
+  html += '</tbody>';
+  document.getElementById('heatmapTable').innerHTML = html;
+}
+
+// Start
+init();
+</script>
+</body>
+</html>
